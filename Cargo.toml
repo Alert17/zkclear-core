@@ -2,6 +2,7 @@
 members = [
     "crates/types",
     "crates/state",
+    "crates/stf",
 ]
 
 resolver = "2"

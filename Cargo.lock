@@ -10,5 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "zkclear-stf"
+version = "0.1.0"
+dependencies = [
+ "zkclear-state",
+ "zkclear-types",
+]
+
+[[package]]
 name = "zkclear-types"
 version = "0.1.0"

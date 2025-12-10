@@ -51,11 +51,11 @@ pub struct Deal {
 
 #[derive(Debug, Clone)]
 pub enum TxKind {
-    DepositL2,
+    Deposit,
     CreateDeal,
     AcceptDeal,
     CancelDeal,
-    WithdrawL2,
+    Withdraw,
 }
 
 #[derive(Debug, Clone)]
@@ -70,15 +70,15 @@ pub struct Tx {
 
 #[derive(Debug, Clone)]
 pub enum TxPayload {
-    DepositL2(DepositL2),
+    Deposit(Deposit),
     CreateDeal(CreateDeal),
     AcceptDeal(AcceptDeal),
     CancelDeal(CancelDeal),
-    WithdrawL2(WithdrawL2),
+    Withdraw(Withdraw),
 }
 
 #[derive(Debug, Clone)]
-pub struct DepositL2 {
+pub struct Deposit {
     pub l1_tx_hash: [u8; 32],
     pub account: Address,
     pub asset_id: AssetId,
@@ -109,7 +109,7 @@ pub struct CancelDeal {
 }
 
 #[derive(Debug, Clone)]
-pub struct WithdrawL2 {
+pub struct Withdraw {
     pub asset_id: AssetId,
     pub amount: u128,
     pub to: Address,
