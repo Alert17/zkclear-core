@@ -79,7 +79,7 @@ pub enum TxPayload {
 
 #[derive(Debug, Clone)]
 pub struct Deposit {
-    pub l1_tx_hash: [u8; 32],
+    pub tx_hash: [u8; 32],
     pub account: Address,
     pub asset_id: AssetId,
     pub amount: u128,

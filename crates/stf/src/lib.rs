@@ -1,7 +1,16 @@
 use zkclear_state::State;
 use zkclear_types::{
+    AssetId,
     Balance,
     Deposit,
+    Withdraw,
+    CreateDeal,
+    AcceptDeal,
+    CancelDeal,
+    Deal,
+    DealStatus,
+    DealVisibility,
+    Address,
     Tx,
     TxPayload,
 };
@@ -13,40 +22,28 @@ pub enum StfError {
     BalanceTooLow,
     DealNotFound,
     DealAlreadyClosed,
+    DealAlreadyExists,
     Unauthorized,
+    Overflow,
 }
-
 
 pub fn apply_tx(state: &mut State, tx: &Tx) -> Result<(), StfError> {
     match &tx.payload {
-        TxPayload::Deposit(p)      => apply_deposit(state, p),
-        TxPayload::Withdraw(p)     => apply_withdraw(state, p),
-        TxPayload::CreateDeal(p)   => apply_create_deal(state, p),
-        TxPayload::AcceptDeal(p)   => apply_accept_deal(state, p),
-        TxPayload::CancelDeal(p)   => apply_cancel_deal(state, p),
+        TxPayload::Deposit(p)    => apply_deposit(state, p),
+        TxPayload::Withdraw(p)   => apply_withdraw(state, tx.from, p),
+        TxPayload::CreateDeal(p) => apply_create_deal(state, tx.from, p),
+        TxPayload::AcceptDeal(p) => apply_accept_deal(state, tx.from, p),
+        TxPayload::CancelDeal(p) => apply_cancel_deal(state, tx.from, p),
     }
 }
 
-fn apply_deposit_(state: &mut State, payload: &Deposit) -> Result<(), StfError> {
-    let account = state.get_or_create_account_by_owner(payload.account);
-
-    let mut found = false;
-    for b in &mut account.balances {
-        if b.asset_id == payload.asset_id {
-            b.amount = b.amount.saturating_add(payload.amount);
-            found = true;
-            break;
-        }
-    }
-
-    if !found {
-        account.balances.push(Balance {
-            asset_id: payload.asset_id,
-            amount: payload.amount,
-        });
-    }
-
+fn apply_deposit(state: &mut State, payload: &Deposit) -> Result<(), StfError> {
+    add_balance(state, payload.account, payload.asset_id, payload.amount);
     Ok(())
+}
+
+fn apply_withdraw(state: &mut State, from: Address, payload: &Withdraw) -> Result<(), StfError> {
+    sub_balance(state, from, payload.asset_id, payload.amount)
 }
 
 pub fn apply_block(state: &mut State, txs: &[Tx]) -> Result<(), StfError> {
@@ -56,14 +53,154 @@ pub fn apply_block(state: &mut State, txs: &[Tx]) -> Result<(), StfError> {
     Ok(())
 }
 
-fn apply_create_deal(state: &mut State, payload: &CreateDeal) -> Result<(), StfError> {
-    Err(StfError::NotImplemented)
+fn apply_create_deal(state: &mut State, maker: Address, payload: &CreateDeal) -> Result<(), StfError> {
+    if state.get_deal(payload.deal_id).is_some() {
+        return Err(StfError::DealAlreadyExists);
+    }
+
+    let deal = Deal {
+        id: payload.deal_id,
+        maker,
+        taker: payload.taker,
+        visibility: payload.visibility,
+        asset_base: payload.asset_base,
+        asset_quote: payload.asset_quote,
+        amount_base: payload.amount_base,
+        price_quote_per_base: payload.price_quote_per_base,
+        status: DealStatus::Pending,
+        created_at: 0,
+        expires_at: payload.expires_at,
+        external_ref: payload.external_ref.clone(),
+    };
+
+    state.upsert_deal(deal);
+
+    Ok(())
 }
 
-fn apply_accept_deal(state: &mut State, payload: &AcceptDeal) -> Result<(), StfError> {
-    Err(StfError::NotImplemented)
+fn apply_accept_deal(state: &mut State, taker: Address, payload: &AcceptDeal) -> Result<(), StfError> {
+    {
+        let deal = state
+            .get_deal(payload.deal_id)
+            .ok_or(StfError::DealNotFound)?;
+
+        if deal.status != DealStatus::Pending {
+            return Err(StfError::DealAlreadyClosed);
+        }
+
+        match deal.visibility {
+            DealVisibility::Public => {}
+            DealVisibility::Direct => {
+                if let Some(expected_taker) = deal.taker {
+                    if expected_taker != taker {
+                        return Err(StfError::Unauthorized);
+                    }
+                } else {
+                    return Err(StfError::Unauthorized);
+                }
+            }
+        }
+
+        if deal.maker == taker {
+            return Err(StfError::Unauthorized);
+        }
+    }
+
+    let (maker_addr, asset_base, asset_quote, amount_base, price_quote_per_base) = {
+        let deal = state
+            .get_deal(payload.deal_id)
+            .ok_or(StfError::DealNotFound)?;
+        (
+            deal.maker,
+            deal.asset_base,
+            deal.asset_quote,
+            deal.amount_base,
+            deal.price_quote_per_base,
+        )
+    };
+
+    let amount_quote = amount_base
+        .checked_mul(price_quote_per_base)
+        .ok_or(StfError::Overflow)?;
+
+    ensure_balance(state, maker_addr, asset_base, amount_base)?;
+    ensure_balance(state, taker,      asset_quote, amount_quote)?;
+
+    sub_balance(state, maker_addr, asset_base, amount_base)?;
+    sub_balance(state, taker,      asset_quote, amount_quote)?;
+
+    add_balance(state, maker_addr, asset_quote, amount_quote);
+    add_balance(state, taker,      asset_base,  amount_base);
+
+    let deal = state
+        .get_deal_mut(payload.deal_id)
+        .ok_or(StfError::DealNotFound)?;
+    deal.status = DealStatus::Settled;
+
+    Ok(())
 }
 
-fn apply_cancel_deal(state: &mut State, payload: &CancelDeal) -> Result<(), StfError> {
-    Err(StfError::NotImplemented)
+fn apply_cancel_deal(state: &mut State, caller: Address, payload: &CancelDeal) -> Result<(), StfError> {
+    let deal = state
+        .get_deal_mut(payload.deal_id)
+        .ok_or(StfError::DealNotFound)?;
+
+    if deal.status != DealStatus::Pending {
+        return Err(StfError::DealAlreadyClosed);
+    }
+
+    if deal.maker != caller {
+        return Err(StfError::Unauthorized);
+    }
+
+    deal.status = DealStatus::Cancelled;
+
+    Ok(())
+}
+
+fn add_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128) {
+    let account = state.get_or_create_account_by_owner(owner);
+
+    for b in &mut account.balances {
+        if b.asset_id == asset_id {
+            b.amount = b.amount.saturating_add(amount);
+            return;
+        }
+    }
+
+    account.balances.push(Balance {
+        asset_id,
+        amount,
+    });
+}
+
+fn sub_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128) -> Result<(), StfError> {
+    let account = state.get_or_create_account_by_owner(owner);
+
+    for b in &mut account.balances {
+        if b.asset_id == asset_id {
+            if b.amount < amount {
+                return Err(StfError::BalanceTooLow);
+            }
+            b.amount -= amount;
+            return Ok(());
+        }
+    }
+
+    Err(StfError::BalanceTooLow)
+}
+
+fn ensure_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128) -> Result<(), StfError> {
+    let account = state.get_or_create_account_by_owner(owner);
+
+    for b in &account.balances {
+        if b.asset_id == asset_id {
+            if b.amount < amount {
+                return Err(StfError::BalanceTooLow);
+            }
+            return Ok(());
+        }
+    }
+
+    Err(StfError::BalanceTooLow)
 }
