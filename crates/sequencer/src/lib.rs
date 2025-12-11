@@ -154,7 +154,7 @@ mod tests {
                 asset_id: 0,
                 amount: 100,
             }),
-            signature: vec![],
+            signature: [0u8; 65],
         }
     }
 

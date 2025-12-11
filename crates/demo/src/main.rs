@@ -43,7 +43,7 @@ fn main() {
                 asset_id: usdc,
                 amount: 1_000_000,  
             }),
-            signature: vec![],
+            signature: [0u8; 65],
         },
         Tx {
             id: 2,
@@ -56,7 +56,7 @@ fn main() {
                 asset_id: usdc,
                 amount: 1_000_000,
             }),
-            signature: vec![],
+            signature: [0u8; 65],
         },
         Tx {
             id: 3,
@@ -69,7 +69,7 @@ fn main() {
                 asset_id: btc,
                 amount: 10_000,
             }),
-            signature: vec![],
+            signature: [0u8; 65],
         },
         Tx {
             id: 4,
@@ -87,7 +87,7 @@ fn main() {
                 expires_at: None,
                 external_ref: None,
             }),
-            signature: vec![],
+            signature: [0u8; 65],
         },
         Tx {
             id: 5,
@@ -96,8 +96,9 @@ fn main() {
             kind: TxKind::AcceptDeal,
             payload: TxPayload::AcceptDeal(AcceptDeal {
                 deal_id: 42,
+                amount: None,
             }),
-            signature: vec![],
+            signature: [0u8; 65],
         },
         Tx {
             id: 6,
@@ -109,7 +110,7 @@ fn main() {
                 amount: 50_000,
                 to: maker,
             }),
-            signature: vec![],
+            signature: [0u8; 65],
         },
     ];
 

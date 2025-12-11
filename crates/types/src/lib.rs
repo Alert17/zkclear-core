@@ -3,6 +3,7 @@ pub type DealId = u64;
 pub type AssetId = u16;
 
 pub type Address = [u8; 20];
+pub type Signature = [u8; 65];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DealVisibility {
@@ -34,6 +35,13 @@ pub struct Balance {
 }
 
 #[derive(Debug, Clone)]
+pub struct Asset {
+    pub id: AssetId,
+    pub symbol: String,
+    pub decimals: u8,
+}
+
+#[derive(Debug, Clone)]
 pub struct Deal {
     pub id: DealId,
     pub maker: Address,
@@ -42,6 +50,7 @@ pub struct Deal {
     pub asset_base: AssetId,
     pub asset_quote: AssetId,
     pub amount_base: u128,
+    pub amount_remaining: u128,
     pub price_quote_per_base: u128,
     pub status: DealStatus,
     pub created_at: u64,
@@ -65,7 +74,7 @@ pub struct Tx {
     pub nonce: u64,
     pub kind: TxKind,
     pub payload: TxPayload,
-    pub signature: Vec<u8>,
+    pub signature: Signature,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +110,7 @@ pub struct CreateDeal {
 #[derive(Debug, Clone)]
 pub struct AcceptDeal {
     pub deal_id: DealId,
+    pub amount: Option<u128>,
 }
 
 #[derive(Debug, Clone)]
