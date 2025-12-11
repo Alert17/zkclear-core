@@ -1,5 +1,4 @@
-use zkclear_state::State;
-use zkclear_stf::apply_block;
+use zkclear_sequencer::Sequencer;
 use zkclear_types::{
     Address,
     AssetId,
@@ -17,8 +16,12 @@ fn addr(byte: u8) -> Address {
     [byte; 20]
 }
 
+fn format_address(addr: &Address) -> String {
+    format!("0x{}", hex::encode(addr))
+}
+
 fn main() {
-    let mut state = State::new();
+    let sequencer = Sequencer::new();
 
     let maker = addr(1);
     let taker = addr(2);
@@ -29,7 +32,6 @@ fn main() {
     let dummy_hash = [0u8; 32];
 
     let txs = vec![
-        // maker gets USDC
         Tx {
             id: 1,
             from: maker,
@@ -43,7 +45,6 @@ fn main() {
             }),
             signature: vec![],
         },
-        // taker gets USDC
         Tx {
             id: 2,
             from: taker,
@@ -57,7 +58,6 @@ fn main() {
             }),
             signature: vec![],
         },
-        // maker gets BTC
         Tx {
             id: 3,
             from: maker,
@@ -71,7 +71,6 @@ fn main() {
             }),
             signature: vec![],
         },
-        // maker creates public deal: sell 1000 BTC units for 100 USDC per unit
         Tx {
             id: 4,
             from: maker,
@@ -90,7 +89,6 @@ fn main() {
             }),
             signature: vec![],
         },
-        // taker accepts this deal
         Tx {
             id: 5,
             from: taker,
@@ -101,7 +99,6 @@ fn main() {
             }),
             signature: vec![],
         },
-        // maker withdraws часть USDC
         Tx {
             id: 6,
             from: maker,
@@ -116,23 +113,43 @@ fn main() {
         },
     ];
 
-    match apply_block(&mut state, &txs) {
-        Ok(()) => {
-            println!("Block applied");
+    println!("Submitting {} transactions to sequencer...", txs.len());
+    for tx in txs {
+        sequencer.submit_tx(tx).expect("Failed to submit transaction");
+    }
 
-            for (id, acc) in &state.accounts {
-                println!("Account {id}: owner={:?}", acc.owner);
-                for b in &acc.balances {
-                    println!("  asset={} amount={}", b.asset_id, b.amount);
-                }
+    println!("Queue length: {} transactions", sequencer.queue_length());
+    println!("\nExecuting blocks...");
+    while sequencer.has_pending_txs() {
+        match sequencer.build_and_execute_block() {
+            Ok(block) => {
+                println!(
+                    "✓ Block {} executed successfully with {} transactions",
+                    block.id,
+                    block.transactions.len()
+                );
             }
-
-            for (id, deal) in &state.deals {
-                println!("Deal {id}: status={:?}", deal.status);
+            Err(e) => {
+                println!("✗ Block execution failed: {e:?}");
+                break;
             }
         }
-        Err(e) => {
-            println!("Block failed: {e:?}");
+    }
+
+    println!("\nFinal state:");
+    println!("Current block ID: {}", sequencer.get_current_block_id());
+
+    let state_handle = sequencer.get_state();
+    let state = state_handle.lock().unwrap();
+
+    for (id, acc) in &state.accounts {
+        println!("Account {id}: owner={}", format_address(&acc.owner));
+        for b in &acc.balances {
+            println!("  asset={} amount={}", b.asset_id, b.amount);
         }
+    }
+
+    for (id, deal) in &state.deals {
+        println!("Deal {id}: status={:?}", deal.status);
     }
 }

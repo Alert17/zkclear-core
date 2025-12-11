@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 zkclear-types = { path = "../types" }
-zkclear-state = { path = "../state" }
-zkclear-stf   = { path = "../stf" }
+zkclear-sequencer = { path = "../sequencer" }
+hex = "0.4"
