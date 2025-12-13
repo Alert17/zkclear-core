@@ -1,4 +1,5 @@
 mod config;
+mod validation;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -7,6 +8,7 @@ use zkclear_stf::{apply_block, StfError};
 use zkclear_types::Tx;
 
 use config::{DEFAULT_MAX_QUEUE_SIZE, DEFAULT_MAX_TXS_PER_BLOCK};
+use validation::{validate_tx, ValidationError};
 
 pub type BlockId = u64;
 
@@ -23,6 +25,9 @@ pub enum SequencerError {
     ExecutionFailed(StfError),
     NoTransactions,
     InvalidBlockId,
+    InvalidSignature,
+    InvalidNonce,
+    ValidationFailed,
 }
 
 #[derive(Debug)]
@@ -50,6 +55,23 @@ impl Sequencer {
     }
 
     pub fn submit_tx(&self, tx: Tx) -> Result<(), SequencerError> {
+        self.submit_tx_with_validation(tx, true)
+    }
+
+    pub fn submit_tx_with_validation(&self, tx: Tx, validate: bool) -> Result<(), SequencerError> {
+        if validate {
+            let state = self.state.lock().unwrap();
+            
+            match validate_tx(&state, &tx) {
+                Ok(()) => {}
+                Err(ValidationError::InvalidSignature) => return Err(SequencerError::InvalidSignature),
+                Err(ValidationError::InvalidNonce) => return Err(SequencerError::InvalidNonce),
+                Err(ValidationError::SignatureRecoveryFailed) => return Err(SequencerError::InvalidSignature),
+            }
+            
+            drop(state);
+        }
+        
         let mut queue = self.tx_queue.lock().unwrap();
         
         if queue.len() >= self.max_queue_size {
@@ -82,7 +104,10 @@ impl Sequencer {
         let block = Block {
             id: block_id,
             transactions,
-            timestamp: 0,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
         };
         
         Ok(block)
@@ -96,7 +121,7 @@ impl Sequencer {
         
         let mut state = self.state.lock().unwrap();
         
-        match apply_block(&mut state, &block.transactions) {
+        match apply_block(&mut state, &block.transactions, block.timestamp) {
             Ok(()) => {
                 let mut block_id = self.current_block_id.lock().unwrap();
                 *block_id += 1;
@@ -164,7 +189,7 @@ mod tests {
         let addr = [1u8; 20];
         
         for i in 0..5 {
-            sequencer.submit_tx(dummy_tx(i, addr, i)).unwrap();
+            sequencer.submit_tx_with_validation(dummy_tx(i, addr, i), false).unwrap();
         }
         
         let block = sequencer.build_block().unwrap();
@@ -178,10 +203,10 @@ mod tests {
         let addr = [1u8; 20];
         
         for i in 0..5 {
-            sequencer.submit_tx(dummy_tx(i, addr, i)).unwrap();
+            sequencer.submit_tx_with_validation(dummy_tx(i, addr, i), false).unwrap();
         }
         
-        match sequencer.submit_tx(dummy_tx(5, addr, 5)) {
+        match sequencer.submit_tx_with_validation(dummy_tx(5, addr, 5), false) {
             Err(SequencerError::QueueFull) => {},
             _ => panic!("Expected QueueFull error"),
         }
@@ -192,7 +217,7 @@ mod tests {
         let sequencer = Sequencer::new();
         let addr = [1u8; 20];
         
-        sequencer.submit_tx(dummy_tx(0, addr, 0)).unwrap();
+        sequencer.submit_tx_with_validation(dummy_tx(0, addr, 0), false).unwrap();
         let block = sequencer.build_block().unwrap();
         
         sequencer.execute_block(block).unwrap();
@@ -204,7 +229,7 @@ mod tests {
         let sequencer = Sequencer::new();
         let addr = [1u8; 20];
         
-        sequencer.submit_tx(dummy_tx(0, addr, 0)).unwrap();
+        sequencer.submit_tx_with_validation(dummy_tx(0, addr, 0), false).unwrap();
         let block = sequencer.build_and_execute_block().unwrap();
         
         assert_eq!(block.id, 0);

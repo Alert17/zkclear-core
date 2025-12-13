@@ -29,14 +29,14 @@ pub enum StfError {
     DealExpired,
 }
 
-pub fn apply_tx(state: &mut State, tx: &Tx) -> Result<(), StfError> {
+pub fn apply_tx(state: &mut State, tx: &Tx, block_timestamp: u64) -> Result<(), StfError> {
     validate_nonce(state, tx.from, tx.nonce)?;
     
     let result = match &tx.payload {
         TxPayload::Deposit(p)    => apply_deposit(state, p),
         TxPayload::Withdraw(p)   => apply_withdraw(state, tx.from, p),
-        TxPayload::CreateDeal(p) => apply_create_deal(state, tx.from, p),
-        TxPayload::AcceptDeal(p) => apply_accept_deal(state, tx.from, p),
+        TxPayload::CreateDeal(p) => apply_create_deal(state, tx.from, p, block_timestamp),
+        TxPayload::AcceptDeal(p) => apply_accept_deal(state, tx.from, p, block_timestamp),
         TxPayload::CancelDeal(p) => apply_cancel_deal(state, tx.from, p),
     };
     
@@ -56,14 +56,14 @@ fn apply_withdraw(state: &mut State, from: Address, payload: &Withdraw) -> Resul
     sub_balance(state, from, payload.asset_id, payload.amount)
 }
 
-pub fn apply_block(state: &mut State, txs: &[Tx]) -> Result<(), StfError> {
+pub fn apply_block(state: &mut State, txs: &[Tx], block_timestamp: u64) -> Result<(), StfError> {
     for tx in txs {
-        apply_tx(state, tx)?;
+        apply_tx(state, tx, block_timestamp)?;
     }
     Ok(())
 }
 
-fn apply_create_deal(state: &mut State, maker: Address, payload: &CreateDeal) -> Result<(), StfError> {
+fn apply_create_deal(state: &mut State, maker: Address, payload: &CreateDeal, block_timestamp: u64) -> Result<(), StfError> {
     if state.get_deal(payload.deal_id).is_some() {
         return Err(StfError::DealAlreadyExists);
     }
@@ -79,7 +79,7 @@ fn apply_create_deal(state: &mut State, maker: Address, payload: &CreateDeal) ->
         amount_remaining: payload.amount_base,
         price_quote_per_base: payload.price_quote_per_base,
         status: DealStatus::Pending,
-        created_at: 0,
+        created_at: block_timestamp,
         expires_at: payload.expires_at,
         external_ref: payload.external_ref.clone(),
     };
@@ -89,7 +89,7 @@ fn apply_create_deal(state: &mut State, maker: Address, payload: &CreateDeal) ->
     Ok(())
 }
 
-fn apply_accept_deal(state: &mut State, taker: Address, payload: &AcceptDeal) -> Result<(), StfError> {
+fn apply_accept_deal(state: &mut State, taker: Address, payload: &AcceptDeal, block_timestamp: u64) -> Result<(), StfError> {
     let (maker_addr, asset_base, asset_quote, amount_remaining, price_quote_per_base, _expires_at, _visibility, _expected_taker) = {
         let deal = state
             .get_deal(payload.deal_id)
@@ -100,7 +100,7 @@ fn apply_accept_deal(state: &mut State, taker: Address, payload: &AcceptDeal) ->
         }
 
         if let Some(exp) = deal.expires_at {
-            if exp > 0 && exp < get_current_timestamp() {
+            if exp > 0 && exp < block_timestamp {
                 return Err(StfError::DealExpired);
             }
         }
@@ -242,8 +242,4 @@ fn validate_nonce(state: &mut State, owner: Address, tx_nonce: u64) -> Result<()
 fn increment_nonce(state: &mut State, owner: Address) {
     let account = state.get_or_create_account_by_owner(owner);
     account.nonce += 1;
-}
-
-fn get_current_timestamp() -> u64 {
-    0
 }

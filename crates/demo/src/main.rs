@@ -116,7 +116,7 @@ fn main() {
 
     println!("Submitting {} transactions to sequencer...", txs.len());
     for tx in txs {
-        sequencer.submit_tx(tx).expect("Failed to submit transaction");
+        sequencer.submit_tx_with_validation(tx, false).expect("Failed to submit transaction");
     }
 
     println!("Queue length: {} transactions", sequencer.queue_length());

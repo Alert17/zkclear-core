@@ -64,4 +64,10 @@ impl State {
         self.account_index.insert(owner, id);
         self.accounts.get_mut(&id).expect("just inserted")
     }
+
+    pub fn get_account_by_address(&self, address: Address) -> Option<&Account> {
+        self.account_index
+            .get(&address)
+            .and_then(|id| self.accounts.get(id))
+    }
 }
