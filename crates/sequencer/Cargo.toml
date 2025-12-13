@@ -9,4 +9,5 @@ zkclear-state = { path = "../state" }
 zkclear-stf = { path = "../stf" }
 k256 = { version = "0.13", features = ["ecdsa"] }
 sha3 = "0.10"
+serde = { version = "1.0", features = ["derive"] }
 

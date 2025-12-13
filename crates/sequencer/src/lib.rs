@@ -12,7 +12,7 @@ use validation::{validate_tx, ValidationError};
 
 pub type BlockId = u64;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Block {
     pub id: BlockId,
     pub transactions: Vec<Tx>,

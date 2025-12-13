@@ -23,3 +23,7 @@ target
 # Project questions and changes summary for local development and planning
 CHANGES_SUMMARY.md
 PROJECT_QUESTIONS.md
+
+# Docker
+.env
+.env.local

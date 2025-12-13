@@ -4,6 +4,7 @@ members = [
     "crates/state",
     "crates/stf",
     "crates/sequencer",
+    "crates/storage",
     "crates/demo",
 ]
 

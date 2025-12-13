@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  zkclear-sequencer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zkclear-sequencer
+    restart: unless-stopped
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+      - DATA_DIR=/app/data
+      - MAX_QUEUE_SIZE=${MAX_QUEUE_SIZE:-10000}
+      - MAX_TXS_PER_BLOCK=${MAX_TXS_PER_BLOCK:-100}
+      - BLOCK_INTERVAL_SEC=${BLOCK_INTERVAL_SEC:-1}
+    volumes:
+      # Persistent storage for RocksDB
+      - zkclear-data:/app/data
+    ports:
+      - "${SEQUENCER_PORT:-8080}:8080"
+    networks:
+      - zkclear-network
+    healthcheck:
+      test: ["CMD", "test", "-f", "/app/zkclear-demo"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional monitoring service (can be added later)
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: zkclear-prometheus
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+  #   ports:
+  #     - "9090:9090"
+  #   networks:
+  #     - zkclear-network
+
+volumes:
+  zkclear-data:
+    driver: local
+
+networks:
+  zkclear-network:
+    driver: bridge
+

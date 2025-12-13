@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use zkclear_types::{Account, AccountId, Address, Deal, DealId};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct State {
     pub accounts: HashMap<AccountId, Account>,
     pub deals: HashMap<DealId, Deal>,

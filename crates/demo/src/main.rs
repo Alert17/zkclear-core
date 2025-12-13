@@ -125,13 +125,13 @@ fn main() {
         match sequencer.build_and_execute_block() {
             Ok(block) => {
                 println!(
-                    "✓ Block {} executed successfully with {} transactions",
+                    "[OK] Block {} executed successfully with {} transactions",
                     block.id,
                     block.transactions.len()
                 );
             }
             Err(e) => {
-                println!("✗ Block execution failed: {e:?}");
+                println!("[ERROR] Block execution failed: {e:?}");
                 break;
             }
         }
