@@ -141,3 +141,100 @@ fn check_nonce(state: &State, tx: &Tx) -> Result<(), ValidationError> {
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zkclear_types::{Tx, TxKind, TxPayload, Deposit};
+
+    fn dummy_address(byte: u8) -> Address {
+        [byte; 20]
+    }
+
+    fn dummy_tx_with_nonce(from: Address, nonce: u64) -> Tx {
+        Tx {
+            id: 0,
+            from,
+            nonce,
+            kind: TxKind::Deposit,
+            payload: TxPayload::Deposit(Deposit {
+                tx_hash: [0u8; 32],
+                account: from,
+                asset_id: 0,
+                amount: 100,
+            }),
+            signature: [0u8; 65],
+        }
+    }
+
+    #[test]
+    fn test_validate_nonce_new_account() {
+        let state = State::new();
+        let addr = dummy_address(1);
+        let tx = dummy_tx_with_nonce(addr, 0);
+
+        let result = check_nonce(&state, &tx);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_nonce_correct() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        
+        let account = state.get_or_create_account_by_owner(addr);
+        account.nonce = 5;
+
+        let tx = dummy_tx_with_nonce(addr, 5);
+        let result = check_nonce(&state, &tx);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_nonce_incorrect() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        
+        let account = state.get_or_create_account_by_owner(addr);
+        account.nonce = 5;
+
+        let tx = dummy_tx_with_nonce(addr, 3);
+        let result = check_nonce(&state, &tx);
+        assert!(matches!(result, Err(ValidationError::InvalidNonce)));
+    }
+
+    #[test]
+    fn test_validate_nonce_too_high() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        
+        let account = state.get_or_create_account_by_owner(addr);
+        account.nonce = 5;
+
+        let tx = dummy_tx_with_nonce(addr, 10);
+        let result = check_nonce(&state, &tx);
+        assert!(matches!(result, Err(ValidationError::InvalidNonce)));
+    }
+
+    #[test]
+    fn test_check_nonce_sequential() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        
+        {
+            let account = state.get_or_create_account_by_owner(addr);
+            account.nonce = 0;
+        }
+
+        let tx1 = dummy_tx_with_nonce(addr, 0);
+        assert!(check_nonce(&state, &tx1).is_ok());
+
+        {
+            let account = state.get_or_create_account_by_owner(addr);
+            account.nonce = 1;
+        }
+        
+        let tx2 = dummy_tx_with_nonce(addr, 1);
+        assert!(check_nonce(&state, &tx2).is_ok());
+    }
+}
+

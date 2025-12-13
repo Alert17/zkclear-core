@@ -32,6 +32,10 @@ impl Storage for InMemoryStorage {
         let mut latest = self.latest_block_id.write().unwrap();
         *latest = Some(block.id);
         
+        for (index, tx) in block.transactions.iter().enumerate() {
+            self.save_transaction(tx, block.id, index)?;
+        }
+        
         Ok(())
     }
 
@@ -90,14 +94,18 @@ impl Storage for InMemoryStorage {
     }
 
     fn get_latest_state_snapshot(&self) -> Result<Option<(State, BlockId)>, StorageError> {
-        let latest_id = self.latest_block_id.read().unwrap();
-        if let Some(block_id) = *latest_id {
-            let snapshots = self.state_snapshots.read().unwrap();
-            if let Some(state) = snapshots.get(&block_id) {
-                return Ok(Some((state.clone(), block_id)));
+        let snapshots = self.state_snapshots.read().unwrap();
+        let mut latest_block_id = None;
+        let mut latest_state = None;
+        
+        for (block_id, state) in snapshots.iter() {
+            if latest_block_id.is_none() || *block_id > latest_block_id.unwrap() {
+                latest_block_id = Some(*block_id);
+                latest_state = Some(state.clone());
             }
         }
-        Ok(None)
+        
+        Ok(latest_block_id.and_then(|id| latest_state.map(|s| (s, id))))
     }
 
     fn flush(&self) -> Result<(), StorageError> {
@@ -108,6 +116,169 @@ impl Storage for InMemoryStorage {
 impl Default for InMemoryStorage {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zkclear_types::{Address, Tx, TxKind, TxPayload, Deposit, Deal, DealStatus, DealVisibility};
+
+    fn dummy_address(byte: u8) -> Address {
+        [byte; 20]
+    }
+
+    fn dummy_tx(id: u64, from: Address, nonce: u64) -> Tx {
+        Tx {
+            id,
+            from,
+            nonce,
+            kind: TxKind::Deposit,
+            payload: TxPayload::Deposit(Deposit {
+                tx_hash: [0u8; 32],
+                account: from,
+                asset_id: 0,
+                amount: 100,
+            }),
+            signature: [0u8; 65],
+        }
+    }
+
+    fn dummy_block(id: BlockId, tx_count: usize) -> Block {
+        let mut transactions = Vec::new();
+        let addr = dummy_address(1);
+        for i in 0..tx_count {
+            transactions.push(dummy_tx(i as u64, addr, i as u64));
+        }
+        Block {
+            id,
+            transactions,
+            timestamp: 1000,
+        }
+    }
+
+    #[test]
+    fn test_save_and_get_block() {
+        let storage = InMemoryStorage::new();
+        let block = dummy_block(0, 3);
+
+        storage.save_block(&block).unwrap();
+        let retrieved = storage.get_block(0).unwrap().unwrap();
+
+        assert_eq!(retrieved.id, 0);
+        assert_eq!(retrieved.transactions.len(), 3);
+        assert_eq!(retrieved.timestamp, 1000);
+    }
+
+    #[test]
+    fn test_get_nonexistent_block() {
+        let storage = InMemoryStorage::new();
+        assert!(storage.get_block(999).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_save_and_get_transaction() {
+        let storage = InMemoryStorage::new();
+        let tx = dummy_tx(0, dummy_address(1), 0);
+
+        storage.save_transaction(&tx, 0, 0).unwrap();
+        let retrieved = storage.get_transaction(0, 0).unwrap().unwrap();
+
+        assert_eq!(retrieved.id, 0);
+        assert_eq!(retrieved.from, dummy_address(1));
+    }
+
+    #[test]
+    fn test_get_transactions_by_block() {
+        let storage = InMemoryStorage::new();
+        let block = dummy_block(0, 5);
+
+        storage.save_block(&block).unwrap();
+        let txs = storage.get_transactions_by_block(0).unwrap();
+
+        assert_eq!(txs.len(), 5);
+    }
+
+    #[test]
+    fn test_save_and_get_deal() {
+        let storage = InMemoryStorage::new();
+        let maker = dummy_address(1);
+        let deal = Deal {
+            id: 42,
+            maker,
+            taker: None,
+            asset_base: 0,
+            asset_quote: 1,
+            amount_base: 1000,
+            amount_remaining: 1000,
+            price_quote_per_base: 100,
+            status: DealStatus::Pending,
+            visibility: DealVisibility::Public,
+            created_at: 1000,
+            expires_at: None,
+            external_ref: None,
+        };
+
+        storage.save_deal(&deal).unwrap();
+        let retrieved = storage.get_deal(42).unwrap().unwrap();
+
+        assert_eq!(retrieved.id, 42);
+        assert_eq!(retrieved.maker, maker);
+        assert_eq!(retrieved.amount_base, 1000);
+    }
+
+    #[test]
+    fn test_save_and_get_state_snapshot() {
+        let storage = InMemoryStorage::new();
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        state.get_or_create_account_by_owner(addr);
+
+        storage.save_state_snapshot(&state, 100).unwrap();
+        let (retrieved_state, block_id) = storage.get_latest_state_snapshot().unwrap().unwrap();
+
+        assert_eq!(block_id, 100);
+        assert_eq!(retrieved_state.accounts.len(), 1);
+    }
+
+    #[test]
+    fn test_get_latest_block_id() {
+        let storage = InMemoryStorage::new();
+        assert!(storage.get_latest_block_id().unwrap().is_none());
+
+        storage.save_block(&dummy_block(0, 1)).unwrap();
+        assert_eq!(storage.get_latest_block_id().unwrap(), Some(0));
+
+        storage.save_block(&dummy_block(1, 1)).unwrap();
+        assert_eq!(storage.get_latest_block_id().unwrap(), Some(1));
+    }
+
+    #[test]
+    fn test_get_all_deals() {
+        let storage = InMemoryStorage::new();
+        let maker = dummy_address(1);
+
+        for i in 0..5 {
+            let deal = Deal {
+                id: i,
+                maker,
+                taker: None,
+                asset_base: 0,
+                asset_quote: 1,
+                amount_base: 1000,
+                amount_remaining: 1000,
+                price_quote_per_base: 100,
+                status: DealStatus::Pending,
+                visibility: DealVisibility::Public,
+                created_at: 1000,
+                expires_at: None,
+                external_ref: None,
+            };
+            storage.save_deal(&deal).unwrap();
+        }
+
+        let deals = storage.get_all_deals().unwrap();
+        assert_eq!(deals.len(), 5);
     }
 }
 

@@ -243,3 +243,341 @@ fn increment_nonce(state: &mut State, owner: Address) {
     let account = state.get_or_create_account_by_owner(owner);
     account.nonce += 1;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zkclear_types::{Tx, TxKind, TxPayload};
+
+    fn dummy_address(byte: u8) -> Address {
+        [byte; 20]
+    }
+
+    fn dummy_tx(from: Address, nonce: u64, payload: TxPayload) -> Tx {
+        Tx {
+            id: 0,
+            from,
+            nonce,
+            kind: match &payload {
+                TxPayload::Deposit(_) => TxKind::Deposit,
+                TxPayload::Withdraw(_) => TxKind::Withdraw,
+                TxPayload::CreateDeal(_) => TxKind::CreateDeal,
+                TxPayload::AcceptDeal(_) => TxKind::AcceptDeal,
+                TxPayload::CancelDeal(_) => TxKind::CancelDeal,
+            },
+            payload,
+            signature: [0u8; 65],
+        }
+    }
+
+    #[test]
+    fn test_deposit() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        let block_timestamp = 1000;
+
+        let tx = dummy_tx(
+            addr,
+            0,
+            TxPayload::Deposit(Deposit {
+                tx_hash: [0u8; 32],
+                account: addr,
+                asset_id: 0,
+                amount: 1000,
+            }),
+        );
+
+        apply_tx(&mut state, &tx, block_timestamp).unwrap();
+
+        let account = state.get_account_by_address(addr).unwrap();
+        assert_eq!(account.balances.len(), 1);
+        assert_eq!(account.balances[0].asset_id, 0);
+        assert_eq!(account.balances[0].amount, 1000);
+        assert_eq!(account.nonce, 1);
+    }
+
+    #[test]
+    fn test_deposit_multiple_assets() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        let block_timestamp = 1000;
+
+        let tx1 = dummy_tx(
+            addr,
+            0,
+            TxPayload::Deposit(Deposit {
+                tx_hash: [0u8; 32],
+                account: addr,
+                asset_id: 0,
+                amount: 1000,
+            }),
+        );
+        apply_tx(&mut state, &tx1, block_timestamp).unwrap();
+
+        let tx2 = dummy_tx(
+            addr,
+            1,
+            TxPayload::Deposit(Deposit {
+                tx_hash: [1u8; 32],
+                account: addr,
+                asset_id: 1,
+                amount: 500,
+            }),
+        );
+        apply_tx(&mut state, &tx2, block_timestamp).unwrap();
+
+        let account = state.get_account_by_address(addr).unwrap();
+        assert_eq!(account.balances.len(), 2);
+        assert_eq!(account.nonce, 2);
+    }
+
+    #[test]
+    fn test_withdraw() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        let block_timestamp = 1000;
+
+        let deposit_tx = dummy_tx(
+            addr,
+            0,
+            TxPayload::Deposit(Deposit {
+                tx_hash: [0u8; 32],
+                account: addr,
+                asset_id: 0,
+                amount: 1000,
+            }),
+        );
+        apply_tx(&mut state, &deposit_tx, block_timestamp).unwrap();
+
+        let withdraw_tx = dummy_tx(
+            addr,
+            1,
+            TxPayload::Withdraw(Withdraw {
+                asset_id: 0,
+                amount: 300,
+                to: addr,
+            }),
+        );
+        apply_tx(&mut state, &withdraw_tx, block_timestamp).unwrap();
+
+        let account = state.get_account_by_address(addr).unwrap();
+        assert_eq!(account.balances[0].amount, 700);
+    }
+
+    #[test]
+    fn test_withdraw_insufficient_balance() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        let block_timestamp = 1000;
+
+        let deposit_tx = dummy_tx(
+            addr,
+            0,
+            TxPayload::Deposit(Deposit {
+                tx_hash: [0u8; 32],
+                account: addr,
+                asset_id: 0,
+                amount: 100,
+            }),
+        );
+        apply_tx(&mut state, &deposit_tx, block_timestamp).unwrap();
+
+        let withdraw_tx = dummy_tx(
+            addr,
+            1,
+            TxPayload::Withdraw(Withdraw {
+                asset_id: 0,
+                amount: 200,
+                to: addr,
+            }),
+        );
+
+        assert!(matches!(
+            apply_tx(&mut state, &withdraw_tx, block_timestamp),
+            Err(StfError::BalanceTooLow)
+        ));
+    }
+
+    #[test]
+    fn test_create_deal() {
+        let mut state = State::new();
+        let maker = dummy_address(1);
+        let block_timestamp = 1000;
+
+        let deposit_tx = dummy_tx(
+            maker,
+            0,
+            TxPayload::Deposit(Deposit {
+                tx_hash: [0u8; 32],
+                account: maker,
+                asset_id: 0,
+                amount: 10000,
+            }),
+        );
+        apply_tx(&mut state, &deposit_tx, block_timestamp).unwrap();
+
+        let create_deal_tx = dummy_tx(
+            maker,
+            1,
+            TxPayload::CreateDeal(CreateDeal {
+                deal_id: 42,
+                visibility: DealVisibility::Public,
+                taker: None,
+                asset_base: 0,
+                asset_quote: 1,
+                amount_base: 1000,
+                price_quote_per_base: 100,
+                expires_at: None,
+                external_ref: None,
+            }),
+        );
+        apply_tx(&mut state, &create_deal_tx, block_timestamp).unwrap();
+
+        let deal = state.get_deal(42).unwrap();
+        assert_eq!(deal.maker, maker);
+        assert_eq!(deal.amount_base, 1000);
+        assert_eq!(deal.amount_remaining, 1000);
+        assert_eq!(deal.status, DealStatus::Pending);
+    }
+
+    #[test]
+    fn test_accept_deal() {
+        let mut state = State::new();
+        let maker = dummy_address(1);
+        let taker = dummy_address(2);
+        let block_timestamp = 1000;
+
+        let maker_deposit = dummy_tx(
+            maker,
+            0,
+            TxPayload::Deposit(Deposit {
+                tx_hash: [0u8; 32],
+                account: maker,
+                asset_id: 0,
+                amount: 10000,
+            }),
+        );
+        apply_tx(&mut state, &maker_deposit, block_timestamp).unwrap();
+
+        let taker_deposit = dummy_tx(
+            taker,
+            0,
+            TxPayload::Deposit(Deposit {
+                tx_hash: [1u8; 32],
+                account: taker,
+                asset_id: 1,
+                amount: 100000,
+            }),
+        );
+        apply_tx(&mut state, &taker_deposit, block_timestamp).unwrap();
+
+        let create_deal = dummy_tx(
+            maker,
+            1,
+            TxPayload::CreateDeal(CreateDeal {
+                deal_id: 42,
+                visibility: DealVisibility::Public,
+                taker: None,
+                asset_base: 0,
+                asset_quote: 1,
+                amount_base: 1000,
+                price_quote_per_base: 100,
+                expires_at: None,
+                external_ref: None,
+            }),
+        );
+        apply_tx(&mut state, &create_deal, block_timestamp).unwrap();
+
+        let accept_deal = dummy_tx(
+            taker,
+            1,
+            TxPayload::AcceptDeal(AcceptDeal {
+                deal_id: 42,
+                amount: None,
+            }),
+        );
+        apply_tx(&mut state, &accept_deal, block_timestamp).unwrap();
+
+        let deal = state.get_deal(42).unwrap();
+        assert_eq!(deal.status, DealStatus::Settled);
+        assert_eq!(deal.amount_remaining, 0);
+
+        let maker_account = state.get_account_by_address(maker).unwrap();
+        let taker_account = state.get_account_by_address(taker).unwrap();
+
+        let maker_quote_balance = maker_account
+            .balances
+            .iter()
+            .find(|b| b.asset_id == 1)
+            .map(|b| b.amount)
+            .unwrap_or(0);
+        assert_eq!(maker_quote_balance, 100000);
+
+        let taker_base_balance = taker_account
+            .balances
+            .iter()
+            .find(|b| b.asset_id == 0)
+            .map(|b| b.amount)
+            .unwrap_or(0);
+        assert_eq!(taker_base_balance, 1000);
+    }
+
+    #[test]
+    fn test_invalid_nonce() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        let block_timestamp = 1000;
+
+        let tx1 = dummy_tx(
+            addr,
+            0,
+            TxPayload::Deposit(Deposit {
+                tx_hash: [0u8; 32],
+                account: addr,
+                asset_id: 0,
+                amount: 1000,
+            }),
+        );
+        apply_tx(&mut state, &tx1, block_timestamp).unwrap();
+
+        let tx2 = dummy_tx(
+            addr,
+            0,
+            TxPayload::Deposit(Deposit {
+                tx_hash: [1u8; 32],
+                account: addr,
+                asset_id: 0,
+                amount: 1000,
+            }),
+        );
+
+        assert!(matches!(
+            apply_tx(&mut state, &tx2, block_timestamp),
+            Err(StfError::InvalidNonce)
+        ));
+    }
+
+    #[test]
+    fn test_nonce_increment() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        let block_timestamp = 1000;
+
+        for i in 0..5 {
+            let tx = dummy_tx(
+                addr,
+                i,
+                TxPayload::Deposit(Deposit {
+                    tx_hash: [i as u8; 32],
+                    account: addr,
+                    asset_id: 0,
+                    amount: 100,
+                }),
+            );
+            apply_tx(&mut state, &tx, block_timestamp).unwrap();
+        }
+
+        let account = state.get_account_by_address(addr).unwrap();
+        assert_eq!(account.nonce, 5);
+    }
+}

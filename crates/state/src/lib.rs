@@ -71,3 +71,117 @@ impl State {
             .and_then(|id| self.accounts.get(id))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zkclear_types::{Balance, Deal, DealStatus, DealVisibility};
+
+    fn dummy_address(byte: u8) -> Address {
+        [byte; 20]
+    }
+
+    #[test]
+    fn test_new_state() {
+        let state = State::new();
+        assert_eq!(state.accounts.len(), 0);
+        assert_eq!(state.deals.len(), 0);
+        assert_eq!(state.next_account_id, 0);
+    }
+
+    #[test]
+    fn test_get_or_create_account_by_owner() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        
+        let account = state.get_or_create_account_by_owner(addr);
+        assert_eq!(account.owner, addr);
+        assert_eq!(account.id, 0);
+        assert_eq!(account.balances.len(), 0);
+        assert_eq!(account.nonce, 0);
+        
+        let account2 = state.get_or_create_account_by_owner(addr);
+        assert_eq!(account2.id, 0);
+        assert_eq!(state.accounts.len(), 1);
+    }
+
+    #[test]
+    fn test_get_account_by_address() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        
+        state.get_or_create_account_by_owner(addr);
+        
+        let account = state.get_account_by_address(addr);
+        assert!(account.is_some());
+        assert_eq!(account.unwrap().owner, addr);
+        
+        let unknown_addr = dummy_address(99);
+        assert!(state.get_account_by_address(unknown_addr).is_none());
+    }
+
+    #[test]
+    fn test_upsert_account() {
+        let mut state = State::new();
+        let addr = dummy_address(1);
+        
+        let account = Account {
+            id: 0,
+            owner: addr,
+            balances: vec![Balance { asset_id: 0, amount: 100 }],
+            nonce: 5,
+            created_at: 1000,
+        };
+        
+        state.upsert_account(account);
+        
+        let retrieved = state.get_account(0);
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().nonce, 5);
+        assert_eq!(retrieved.unwrap().balances.len(), 1);
+    }
+
+    #[test]
+    fn test_upsert_deal() {
+        let mut state = State::new();
+        let maker = dummy_address(1);
+        
+        let deal = Deal {
+            id: 42,
+            maker,
+            taker: None,
+            asset_base: 0,
+            asset_quote: 1,
+            amount_base: 1000,
+            amount_remaining: 1000,
+            price_quote_per_base: 100,
+            status: DealStatus::Pending,
+            visibility: DealVisibility::Public,
+            created_at: 1000,
+            expires_at: None,
+            external_ref: None,
+        };
+        
+        state.upsert_deal(deal);
+        
+        let retrieved = state.get_deal(42);
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().maker, maker);
+        assert_eq!(retrieved.unwrap().amount_base, 1000);
+    }
+
+    #[test]
+    fn test_multiple_accounts() {
+        let mut state = State::new();
+        let addr1 = dummy_address(1);
+        let addr2 = dummy_address(2);
+        
+        let acc1 = state.get_or_create_account_by_owner(addr1);
+        assert_eq!(acc1.id, 0);
+        
+        let acc2 = state.get_or_create_account_by_owner(addr2);
+        assert_eq!(acc2.id, 1);
+        
+        assert_eq!(state.accounts.len(), 2);
+    }
+}
