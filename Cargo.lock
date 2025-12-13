@@ -774,6 +774,7 @@ dependencies = [
  "sha3",
  "zkclear-state",
  "zkclear-stf",
+ "zkclear-storage",
  "zkclear-types",
 ]
 
@@ -799,7 +800,6 @@ dependencies = [
  "bincode",
  "rocksdb",
  "serde",
- "zkclear-sequencer",
  "zkclear-state",
  "zkclear-types",
 ]

@@ -5,19 +5,11 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use zkclear_state::State;
 use zkclear_stf::{apply_block, StfError};
-use zkclear_types::Tx;
+use zkclear_storage::Storage;
+use zkclear_types::{Block, BlockId, Tx};
 
-use config::{DEFAULT_MAX_QUEUE_SIZE, DEFAULT_MAX_TXS_PER_BLOCK};
+use config::{DEFAULT_MAX_QUEUE_SIZE, DEFAULT_MAX_TXS_PER_BLOCK, DEFAULT_SNAPSHOT_INTERVAL};
 use validation::{validate_tx, ValidationError};
-
-pub type BlockId = u64;
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Block {
-    pub id: BlockId,
-    pub transactions: Vec<Tx>,
-    pub timestamp: u64,
-}
 
 #[derive(Debug)]
 pub enum SequencerError {
@@ -28,15 +20,18 @@ pub enum SequencerError {
     InvalidSignature,
     InvalidNonce,
     ValidationFailed,
+    StorageError(String),
 }
 
-#[derive(Debug)]
 pub struct Sequencer {
     state: Arc<Mutex<State>>,
     tx_queue: Arc<Mutex<VecDeque<Tx>>>,
     max_queue_size: usize,
     current_block_id: Arc<Mutex<BlockId>>,
     max_txs_per_block: usize,
+    storage: Option<Arc<dyn Storage>>,
+    snapshot_interval: BlockId,
+    last_snapshot_block_id: Arc<Mutex<BlockId>>,
 }
 
 impl Sequencer {
@@ -51,7 +46,77 @@ impl Sequencer {
             max_queue_size,
             current_block_id: Arc::new(Mutex::new(0)),
             max_txs_per_block,
+            storage: None,
+            snapshot_interval: DEFAULT_SNAPSHOT_INTERVAL,
+            last_snapshot_block_id: Arc::new(Mutex::new(0)),
         }
+    }
+
+    pub fn with_snapshot_interval(mut self, interval: BlockId) -> Self {
+        self.snapshot_interval = interval;
+        self
+    }
+
+    pub fn with_storage<S: Storage + 'static>(storage: S) -> Result<Self, SequencerError> {
+        let mut sequencer = Self::with_config(DEFAULT_MAX_QUEUE_SIZE, DEFAULT_MAX_TXS_PER_BLOCK);
+        sequencer.load_state_from_storage(Arc::new(storage))?;
+        Ok(sequencer)
+    }
+
+    pub fn set_storage<S: Storage + 'static>(&mut self, storage: S) -> Result<(), SequencerError> {
+        self.load_state_from_storage(Arc::new(storage))?;
+        Ok(())
+    }
+
+    fn load_state_from_storage(&mut self, storage: Arc<dyn Storage>) -> Result<(), SequencerError> {
+        let latest_block_id = storage.get_latest_block_id()
+            .map_err(|e| SequencerError::StorageError(format!("Failed to get latest block ID: {:?}", e)))?
+            .unwrap_or(0);
+        
+        match storage.get_latest_state_snapshot() {
+            Ok(Some((snapshot_state, snapshot_block_id))) => {
+                *self.state.lock().unwrap() = snapshot_state;
+                *self.last_snapshot_block_id.lock().unwrap() = snapshot_block_id;
+                
+                if latest_block_id > snapshot_block_id {
+                    self.replay_blocks_from_storage(&*storage, snapshot_block_id + 1, latest_block_id)?;
+                }
+                
+                *self.current_block_id.lock().unwrap() = latest_block_id + 1;
+            }
+            Ok(None) => {
+                if latest_block_id > 0 {
+                    self.replay_blocks_from_storage(&*storage, 0, latest_block_id)?;
+                }
+                *self.current_block_id.lock().unwrap() = latest_block_id + 1;
+                *self.last_snapshot_block_id.lock().unwrap() = 0;
+            }
+            Err(e) => return Err(SequencerError::StorageError(format!("Failed to load state: {:?}", e))),
+        }
+        
+        self.storage = Some(storage);
+        Ok(())
+    }
+
+    fn replay_blocks_from_storage(&self, storage: &dyn Storage, from_block: BlockId, to_block: BlockId) -> Result<(), SequencerError> {
+        let mut state = self.state.lock().unwrap();
+        
+        for block_id in from_block..=to_block {
+            match storage.get_block(block_id) {
+                Ok(Some(block)) => {
+                    apply_block(&mut state, &block.transactions, block.timestamp)
+                        .map_err(SequencerError::ExecutionFailed)?;
+                }
+                Ok(None) => {
+                    return Err(SequencerError::StorageError(format!("Block {} not found", block_id)));
+                }
+                Err(e) => {
+                    return Err(SequencerError::StorageError(format!("Failed to load block {}: {:?}", block_id, e)));
+                }
+            }
+        }
+        
+        Ok(())
     }
 
     pub fn submit_tx(&self, tx: Tx) -> Result<(), SequencerError> {
@@ -125,6 +190,36 @@ impl Sequencer {
             Ok(()) => {
                 let mut block_id = self.current_block_id.lock().unwrap();
                 *block_id += 1;
+                drop(block_id);
+                
+                if let Some(ref storage) = self.storage {
+                    storage.save_block(&block)
+                        .map_err(|e| SequencerError::StorageError(format!("Failed to save block: {:?}", e)))?;
+                    
+                    for (index, tx) in block.transactions.iter().enumerate() {
+                        storage.save_transaction(tx, block.id, index)
+                            .map_err(|e| SequencerError::StorageError(format!("Failed to save transaction: {:?}", e)))?;
+                    }
+                    
+                    for deal in state.deals.values() {
+                        storage.save_deal(deal)
+                            .map_err(|e| SequencerError::StorageError(format!("Failed to save deal: {:?}", e)))?;
+                    }
+                    
+                    let last_snapshot = *self.last_snapshot_block_id.lock().unwrap();
+                    let blocks_since_snapshot = block.id.saturating_sub(last_snapshot);
+                    
+                    if blocks_since_snapshot >= self.snapshot_interval {
+                        let state_clone = state.clone();
+                        drop(state);
+                        
+                        storage.save_state_snapshot(&state_clone, block.id)
+                            .map_err(|e| SequencerError::StorageError(format!("Failed to save state snapshot: {:?}", e)))?;
+                        
+                        *self.last_snapshot_block_id.lock().unwrap() = block.id;
+                    }
+                }
+                
                 Ok(())
             }
             Err(e) => {
@@ -153,6 +248,20 @@ impl Sequencer {
 
     pub fn has_pending_txs(&self) -> bool {
         !self.tx_queue.lock().unwrap().is_empty()
+    }
+
+    pub fn create_state_snapshot(&self) -> Result<(), SequencerError> {
+        if let Some(ref storage) = self.storage {
+            let state = self.state.lock().unwrap();
+            let block_id = *self.current_block_id.lock().unwrap();
+            
+            let state_clone = state.clone();
+            drop(state);
+            
+            storage.save_state_snapshot(&state_clone, block_id)
+                .map_err(|e| SequencerError::StorageError(format!("Failed to save state snapshot: {:?}", e)))?;
+        }
+        Ok(())
     }
 }
 

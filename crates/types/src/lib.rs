@@ -1,6 +1,7 @@
 pub type AccountId = u64;
 pub type DealId = u64;
 pub type AssetId = u16;
+pub type BlockId = u64;
 
 pub type Address = [u8; 20];
 pub type Signature = [u8; 65];
@@ -128,4 +129,11 @@ pub struct Withdraw {
     pub asset_id: AssetId,
     pub amount: u128,
     pub to: Address,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Block {
+    pub id: BlockId,
+    pub transactions: Vec<Tx>,
+    pub timestamp: u64,
 }

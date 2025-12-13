@@ -1,6 +1,5 @@
 use zkclear_state::State;
-use zkclear_types::{Deal, DealId, Tx};
-use zkclear_sequencer::{Block, BlockId};
+use zkclear_types::{Block, BlockId, Deal, DealId, Tx};
 
 #[derive(Debug)]
 pub enum StorageError {

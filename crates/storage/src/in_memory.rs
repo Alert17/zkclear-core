@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use zkclear_state::State;
-use zkclear_types::{Deal, DealId, Tx};
-use zkclear_sequencer::{Block, BlockId};
+use zkclear_types::{Block, BlockId, Deal, DealId, Tx};
 use crate::storage_trait::{Storage, StorageError, TxId};
 
 pub struct InMemoryStorage {
