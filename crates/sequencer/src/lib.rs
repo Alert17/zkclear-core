@@ -8,7 +8,7 @@ use zkclear_stf::{apply_block, StfError};
 use zkclear_storage::Storage;
 use zkclear_types::{Block, BlockId, Tx};
 
-use config::{DEFAULT_MAX_QUEUE_SIZE, DEFAULT_MAX_TXS_PER_BLOCK, DEFAULT_SNAPSHOT_INTERVAL};
+use config::{DEFAULT_MAX_QUEUE_SIZE, DEFAULT_MAX_TXS_PER_BLOCK, DEFAULT_SNAPSHOT_INTERVAL, DEFAULT_BLOCK_INTERVAL_SECONDS};
 use validation::{validate_tx, ValidationError};
 
 #[derive(Debug)]
