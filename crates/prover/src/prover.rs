@@ -51,8 +51,14 @@ impl Prover {
         let snark_prover: Box<dyn SnarkProver> = if config.use_placeholders {
             Box::new(crate::snark::PlaceholderSnarkProver)
         } else {
-            // TODO: Initialize Plonky2 or other SNARK prover based on config
-            Box::new(crate::snark::PlaceholderSnarkProver)
+            #[cfg(feature = "arkworks")]
+            {
+                Box::new(crate::snark::ArkworksSnarkProver::new())
+            }
+            #[cfg(not(feature = "arkworks"))]
+            {
+                Box::new(crate::snark::SimplifiedSnarkProver::new())
+            }
         };
 
         Self {

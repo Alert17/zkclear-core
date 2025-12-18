@@ -19,10 +19,20 @@ async-trait = "0.1"
 # ZK Proof libraries
 # Winterfell for STARK proofs (reliable, well-maintained, available on crates.io)
 winterfell = { version = "0.13", optional = true, features = ["std", "concurrent"] }
+# Arkworks Groth16 for SNARK proofs (wrapping STARK proofs for on-chain verification)
+# Arkworks is a popular, stable library that works on stable Rust
+ark-groth16 = { version = "0.5", optional = true }
+ark-bn254 = { version = "0.5", optional = true }
+ark-ec = { version = "0.5", optional = true }
+ark-ff = { version = "0.5", optional = true }
+ark-std = { version = "0.5", optional = true }
+ark-r1cs-std = { version = "0.5", optional = true }
+ark-relations = { version = "0.5", optional = true }
 
 [features]
 default = []
 winterfell = ["dep:winterfell"]
+arkworks = ["dep:ark-groth16", "dep:ark-bn254", "dep:ark-ec", "dep:ark-ff", "dep:ark-std", "dep:ark-r1cs-std", "dep:ark-relations"]
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
