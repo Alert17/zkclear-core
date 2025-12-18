@@ -58,16 +58,32 @@ impl StarkProver for PlaceholderStarkProver {
 /// Winterfell is a reliable, well-maintained STARK library available on crates.io
 #[cfg(feature = "winterfell")]
 pub struct WinterfellStarkProver {
-    // Winterfell configuration will be added when implementing AIR
-    // For now, we keep the struct simple
+    prover: crate::air::BlockTransitionProver,
+    verifier: crate::air::BlockTransitionVerifier,
 }
 
 #[cfg(feature = "winterfell")]
 impl WinterfellStarkProver {
     pub fn new() -> Self {
-        // Proof options will be configured when implementing AIR
-        // For now, we just create the prover instance
-        Self {}
+        use winterfell::ProofOptions;
+        
+        // Create proof options with reasonable defaults
+        // These can be customized based on security/performance requirements
+        let options = ProofOptions::new(
+            28, // num_queries
+            4,  // blowup_factor
+            0,  // grinding_factor
+            winterfell::FieldExtension::None,
+            8,  // fri_folding_factor
+            4,  // fri_max_remainder_size
+            winterfell::BatchingMethod::Linear, // constraint_batching
+            winterfell::BatchingMethod::Linear, // query_batching
+        );
+        
+        Self {
+            prover: crate::air::BlockTransitionProver::new(options.clone()),
+            verifier: crate::air::BlockTransitionVerifier::new(options),
+        }
     }
 }
 
@@ -76,56 +92,59 @@ impl WinterfellStarkProver {
 impl StarkProver for WinterfellStarkProver {
     async fn prove_block_transition(
         &self,
-        _prev_state_root: &[u8; 32],
-        _new_state_root: &[u8; 32],
-        _withdrawals_root: &[u8; 32],
-        _block_data: &[u8],
+        prev_state_root: &[u8; 32],
+        new_state_root: &[u8; 32],
+        withdrawals_root: &[u8; 32],
+        block_data: &[u8],
     ) -> Result<Vec<u8>, ProverError> {
-        // Generate STARK proof using Winterfell
-        // 
-        // To use Winterfell properly, you need to:
-        // 1. Define AIR (Algebraic Intermediate Representation) for state transition
-        // 2. Implement Prover trait for your AIR
-        // 3. Generate proof using Winterfell's prover
-        //
-        // Example structure:
-        // ```
-        // use winterfell::{Prover, Proof};
-        // 
-        // let prover = BlockTransitionProver::new(self.options.clone());
-        // let public_inputs = BlockTransitionInputs { ... };
-        // let proof = prover.prove(public_inputs, private_inputs)?;
-        // let proof_bytes = bincode::serialize(&proof)?;
-        // Ok(proof_bytes)
-        // ```
+        use crate::air::{BlockTransitionInputs, BlockTransitionPrivateInputs};
+        use zkclear_types::Block;
         
-        // For now, return error indicating AIR needs to be implemented
-        Err(ProverError::StarkProof(
-            "Winterfell STARK proof generation requires AIR implementation. See Winterfell documentation for details.".to_string()
-        ))
+        // Deserialize block to extract metadata
+        let block: Block = bincode::deserialize(block_data)
+            .map_err(|e| ProverError::Serialization(format!("Failed to deserialize block: {}", e)))?;
+        
+        // Create public inputs
+        let public_inputs = BlockTransitionInputs {
+            prev_state_root: *prev_state_root,
+            new_state_root: *new_state_root,
+            withdrawals_root: *withdrawals_root,
+            block_id: block.id,
+            timestamp: block.timestamp,
+        };
+        
+        // Create private inputs
+        let private_inputs = BlockTransitionPrivateInputs {
+            transactions: block_data.to_vec(),
+        };
+        
+        // Generate proof using Winterfell
+        let proof = self.prover.prove(public_inputs, private_inputs)?;
+        
+        // Serialize proof to bytes using Winterfell's built-in serialization
+        let proof_bytes = proof.to_bytes();
+        
+        Ok(proof_bytes)
     }
 
     async fn verify_stark_proof(
         &self,
-        _proof: &[u8],
-        _public_inputs: &[u8],
+        proof: &[u8],
+        public_inputs: &[u8],
     ) -> Result<bool, ProverError> {
-        // Verify STARK proof using Winterfell
-        // 
-        // Example structure:
-        // ```
-        // use winterfell::{Verifier, Proof};
-        // 
-        // let proof: Proof = bincode::deserialize(proof)?;
-        // let public_inputs: BlockTransitionInputs = bincode::deserialize(public_inputs)?;
-        // let verifier = BlockTransitionVerifier::new(self.options.clone());
-        // verifier.verify(proof, public_inputs)?;
-        // Ok(true)
-        // ```
+        use crate::air::BlockTransitionInputs;
+        use winterfell::Proof;
         
-        // For now, return error
-        Err(ProverError::StarkProof(
-            "Winterfell STARK proof verification requires AIR implementation. See Winterfell documentation for details.".to_string()
-        ))
+        // Deserialize proof and public inputs
+        let proof = Proof::from_bytes(proof)
+            .map_err(|e| ProverError::Serialization(format!("Failed to deserialize Winterfell proof: {}", e)))?;
+        
+        let public_inputs: BlockTransitionInputs = bincode::deserialize(public_inputs)
+            .map_err(|e| ProverError::Serialization(format!("Failed to deserialize public inputs: {}", e)))?;
+        
+        // Verify proof using Winterfell
+        self.verifier.verify(&proof, &public_inputs)?;
+        
+        Ok(true)
     }
 }
