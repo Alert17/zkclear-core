@@ -5,6 +5,7 @@ use zkclear_api::{create_router, ApiState};
 use zkclear_sequencer::Sequencer;
 use zkclear_sequencer::SequencerError;
 use zkclear_storage::InMemoryStorage;
+use zkclear_watcher::{Watcher, WatcherConfig};
 
 fn get_block_interval_seconds() -> u64 {
     std::env::var("BLOCK_INTERVAL_SEC")
@@ -65,6 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = create_router(api_state);
 
+    let watcher_config = WatcherConfig::default();
+    let watcher = Watcher::new(sequencer.clone(), watcher_config);
+    
     let listener = TcpListener::bind("0.0.0.0:8080").await?;
     println!("ZKClear API server listening on http://0.0.0.0:8080");
     
@@ -72,7 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         axum::serve(listener, app).await
     });
     
-    let block_production_handle = tokio::spawn(block_production_task(sequencer));
+    let block_production_handle = tokio::spawn(block_production_task(sequencer.clone()));
+    let watcher_handle = tokio::spawn(async move {
+        if let Err(e) = watcher.start().await {
+            eprintln!("Watcher error: {}", e);
+        }
+    });
     
     tokio::select! {
         result = server_handle => {
@@ -80,6 +89,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ = block_production_handle => {
             eprintln!("Block production task stopped unexpectedly");
+        }
+        _ = watcher_handle => {
+            eprintln!("Watcher task stopped unexpectedly");
         }
     }
     

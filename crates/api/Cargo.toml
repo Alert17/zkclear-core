@@ -12,6 +12,7 @@ zkclear-types = { path = "../types" }
 zkclear-state = { path = "../state" }
 zkclear-sequencer = { path = "../sequencer" }
 zkclear-storage = { path = "../storage" }
+zkclear-watcher = { path = "../watcher" }
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

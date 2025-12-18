@@ -7,6 +7,7 @@ members = [
     "crates/storage",
     "crates/api",
     "crates/demo",
+    "crates/watcher",
 ]
 
 resolver = "2"
