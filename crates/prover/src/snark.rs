@@ -60,14 +60,25 @@ impl SnarkProver for PlaceholderSnarkProver {
 /// in production systems. Groth16 is a proven SNARK system with efficient on-chain verification.
 #[cfg(feature = "arkworks")]
 pub struct ArkworksSnarkProver {
-    // Arkworks configuration
-    // Groth16 uses BN254 curve for efficient on-chain verification
+    key_manager: crate::keys::KeyManager,
 }
 
 #[cfg(feature = "arkworks")]
 impl ArkworksSnarkProver {
-    pub fn new() -> Self {
-        Self {}
+    /// Create a new Arkworks SNARK prover
+    /// 
+    /// This will load existing keys from disk, or generate new ones if they don't exist.
+    /// 
+    /// # Arguments
+    /// * `keys_dir` - Optional path to directory for storing keys. Defaults to `./keys`
+    /// * `force_regenerate` - If true, regenerate keys even if they exist
+    pub fn new(keys_dir: Option<std::path::PathBuf>, force_regenerate: bool) -> Result<Self, crate::error::ProverError> {
+        let mut key_manager = crate::keys::KeyManager::new(keys_dir);
+        key_manager.load_or_generate(force_regenerate)?;
+        
+        Ok(Self {
+            key_manager,
+        })
     }
 }
 
@@ -93,17 +104,12 @@ impl SnarkProver for ArkworksSnarkProver {
         stark_proof: &[u8],
         public_inputs: &[u8],
     ) -> Result<Vec<u8>, ProverError> {
-        // NOTE: For MVP, we create a structured wrapper
-        // In production, this would use Arkworks Groth16 to:
-        // 1. Create a circuit that verifies the STARK proof
-        // 2. Generate proving key (can be pre-computed and stored)
-        // 3. Generate Groth16 proof
-        // 4. Return compact proof for on-chain verification
-        //
-        // Full implementation requires:
-        // - Defining a ConstraintSynthesizer that verifies STARK proof
-        // - Pre-computing proving/verifying keys
-        // - Generating actual Groth16 proof
+        use ark_bn254::Bn254;
+        use ark_groth16::Groth16;
+        use ark_snark::SNARK;
+        use ark_std::rand::rngs::StdRng;
+        use ark_std::rand::SeedableRng;
+        use crate::circuit::StarkProofVerifierCircuit;
         
         // Parse public inputs
         if public_inputs.len() < 96 {
@@ -112,51 +118,53 @@ impl SnarkProver for ArkworksSnarkProver {
             ));
         }
         
-        // Create structured wrapper for MVP
-        // This structure is ready to be replaced with actual Groth16 proof
+        // Get proving key (pre-computed and loaded)
+        let pk = self.key_manager.proving_key()?;
+        
+        // Create witness (circuit with all values assigned)
+        let circuit_with_witness = StarkProofVerifierCircuit {
+            public_inputs: public_inputs.to_vec(),
+            stark_proof: stark_proof.to_vec(),
+        };
+        
+        // Use deterministic RNG for proof generation
+        // In production, this should use secure randomness
+        let mut seed = [0u8; 32];
+        seed[0..8].copy_from_slice(&(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs().to_le_bytes()));
+        let mut rng = StdRng::from_seed(seed);
+        
+        // Generate proof using pre-computed proving key
+        let proof = Groth16::<Bn254>::prove(pk, circuit_with_witness, &mut rng)
+            .map_err(|e| ProverError::SnarkProof(format!("Failed to generate Groth16 proof: {:?}", e)))?;
+        
+        // Serialize proof and public inputs using ark-serialize
+        use ark_serialize::{CanonicalSerialize, Compress};
+        
+        // Serialize proof
+        let mut proof_bytes = Vec::new();
+        proof.serialize_with_mode(&mut proof_bytes, Compress::Yes)
+            .map_err(|e| ProverError::Serialization(format!("Failed to serialize Groth16 proof: {}", e)))?;
+        
+        // For MVP, we'll serialize both proof and public inputs
+        // In production, verifying key should be stored separately
         #[derive(serde::Serialize, serde::Deserialize)]
         struct SnarkProofWrapper {
-            stark_proof: Vec<u8>,
+            proof: Vec<u8>,
             public_inputs: Vec<u8>,
             version: u8,
-            metadata: SnarkMetadata,
-        }
-        
-        #[derive(serde::Serialize, serde::Deserialize)]
-        struct SnarkMetadata {
-            stark_proof_size: u32,
-            public_inputs_size: u32,
-            timestamp: u64,
-            snark_type: String,
         }
         
         let wrapper = SnarkProofWrapper {
-            stark_proof: stark_proof.to_vec(),
+            proof: proof_bytes,
             public_inputs: public_inputs.to_vec(),
-            version: 2, // Version 2 for Arkworks Groth16
-            metadata: SnarkMetadata {
-                stark_proof_size: stark_proof.len() as u32,
-                public_inputs_size: public_inputs.len() as u32,
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-                snark_type: "Groth16".to_string(),
-            },
+            version: 3, // Version 3 for actual Groth16 proof
         };
         
-        let proof_bytes = bincode::serialize(&wrapper)
-            .map_err(|e| ProverError::Serialization(format!("Failed to serialize SNARK wrapper: {}", e)))?;
-        
-        // TODO: Implement full Arkworks Groth16 proof generation
-        // Steps:
-        // 1. Define ConstraintSynthesizer that verifies STARK proof structure
-        // 2. Load or generate proving key (can be pre-computed)
-        // 3. Create witness from STARK proof and public inputs
-        // 4. Generate Groth16 proof using ark_groth16::Groth16::prove
-        // 5. Serialize and return the compact proof
-        
-        Ok(proof_bytes)
+        bincode::serialize(&wrapper)
+            .map_err(|e| ProverError::Serialization(format!("Failed to serialize SNARK wrapper: {}", e)))
     }
 
     async fn verify_snark_proof(
@@ -164,41 +172,24 @@ impl SnarkProver for ArkworksSnarkProver {
         proof: &[u8],
         public_inputs: &[u8],
     ) -> Result<bool, ProverError> {
-        // For MVP, verify the wrapper structure
-        // In production, this would verify the actual Groth16 proof
+        use ark_bn254::Bn254;
+        use ark_groth16::Groth16;
+        use ark_snark::SNARK;
+        use ark_serialize::CanonicalDeserialize;
         
+        // Deserialize wrapper
         #[derive(serde::Serialize, serde::Deserialize)]
         struct SnarkProofWrapper {
-            stark_proof: Vec<u8>,
+            proof: Vec<u8>,
             public_inputs: Vec<u8>,
             version: u8,
-            metadata: SnarkMetadata,
-        }
-        
-        #[derive(serde::Serialize, serde::Deserialize)]
-        struct SnarkMetadata {
-            stark_proof_size: u32,
-            public_inputs_size: u32,
-            timestamp: u64,
-            snark_type: String,
         }
         
         let wrapper: SnarkProofWrapper = bincode::deserialize(proof)
             .map_err(|e| ProverError::Serialization(format!("Failed to deserialize SNARK wrapper: {}", e)))?;
         
         // Verify version
-        if wrapper.version != 2 {
-            return Ok(false);
-        }
-        
-        // Verify metadata
-        if wrapper.stark_proof.len() != wrapper.metadata.stark_proof_size as usize {
-            return Ok(false);
-        }
-        if wrapper.public_inputs.len() != wrapper.metadata.public_inputs_size as usize {
-            return Ok(false);
-        }
-        if wrapper.metadata.snark_type != "Groth16" {
+        if wrapper.version != 3 {
             return Ok(false);
         }
         
@@ -207,13 +198,33 @@ impl SnarkProver for ArkworksSnarkProver {
             return Ok(false);
         }
         
-        // TODO: Implement full Groth16 proof verification
-        // This would involve:
-        // 1. Deserializing the Groth16 proof
-        // 2. Verifying it against the verifying key (stored separately)
-        // 3. Checking public inputs match
+        // Deserialize Groth16 proof
+        let groth16_proof = ark_groth16::Proof::<Bn254>::deserialize_with_mode(
+            &wrapper.proof[..],
+            ark_serialize::Compress::Yes,
+            ark_serialize::Validate::Yes,
+        ).map_err(|e| ProverError::Serialization(format!("Failed to deserialize Groth16 proof: {}", e)))?;
         
-        Ok(true)
+        // Get verifying key (pre-computed and loaded)
+        let vk = self.key_manager.verifying_key()?;
+        
+        // Convert public inputs to field elements
+        // Each 32-byte root = 8 field elements (4 bytes each)
+        let mut public_inputs_elements = Vec::new();
+        for chunk in public_inputs.chunks(4).take(24) { // 3 roots * 8 elements = 24
+            if chunk.len() == 4 {
+                let value = u32::from_le_bytes(chunk.try_into().map_err(|_| {
+                    ProverError::Serialization("Failed to parse public input".to_string())
+                })?);
+                public_inputs_elements.push(ark_bn254::Fr::from(value as u64));
+            }
+        }
+        
+        // Verify proof
+        let is_valid = Groth16::<Bn254>::verify(&vk, &public_inputs_elements, &groth16_proof)
+            .map_err(|e| ProverError::SnarkProof(format!("Groth16 verification failed: {:?}", e)))?;
+        
+        Ok(is_valid)
     }
 }
 

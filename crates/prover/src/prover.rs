@@ -13,6 +13,10 @@ pub struct ProverConfig {
     pub use_placeholders: bool,
     /// Path to Plonky2 configuration (if using Plonky2)
     pub plonky2_config_path: Option<String>,
+    /// Path to directory for storing Groth16 keys (default: ./keys)
+    pub groth16_keys_dir: Option<std::path::PathBuf>,
+    /// Force regeneration of Groth16 keys even if they exist
+    pub force_regenerate_keys: bool,
 }
 
 impl Default for ProverConfig {
@@ -20,6 +24,8 @@ impl Default for ProverConfig {
         Self {
             use_placeholders: true,
             plonky2_config_path: None,
+            groth16_keys_dir: None,
+            force_regenerate_keys: false,
         }
     }
 }
@@ -34,7 +40,7 @@ pub struct Prover {
 
 impl Prover {
     /// Create a new prover with the given configuration
-    pub fn new(config: ProverConfig) -> Self {
+    pub fn new(config: ProverConfig) -> Result<Self, ProverError> {
         let stark_prover: Box<dyn StarkProver> = if config.use_placeholders {
             Box::new(crate::stark::PlaceholderStarkProver)
         } else {
@@ -53,7 +59,13 @@ impl Prover {
         } else {
             #[cfg(feature = "arkworks")]
             {
-                Box::new(crate::snark::ArkworksSnarkProver::new())
+                Box::new(crate::snark::ArkworksSnarkProver::new(
+                    config.groth16_keys_dir.clone(),
+                    config.force_regenerate_keys,
+                ).map_err(|e| {
+                    eprintln!("Failed to initialize ArkworksSnarkProver: {:?}", e);
+                    e
+                })?)
             }
             #[cfg(not(feature = "arkworks"))]
             {
@@ -61,10 +73,10 @@ impl Prover {
             }
         };
 
-        Self {
+        Ok(Self {
             stark_prover,
             snark_prover,
-        }
+        })
     }
 
     /// Generate a block proof (STARK + SNARK)
