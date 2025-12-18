@@ -37,7 +37,6 @@ pub mod deal {
 
 pub mod defaults {
     pub use super::chain_ids;
-    
+
     pub const DEFAULT_CHAIN_ID: u64 = chain_ids::ETHEREUM;
 }
-

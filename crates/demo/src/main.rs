@@ -1,15 +1,7 @@
 use zkclear_sequencer::Sequencer;
 use zkclear_types::{
-    Address,
-    AssetId,
-    Deposit,
+    AcceptDeal, Address, AssetId, CreateDeal, DealVisibility, Deposit, Tx, TxKind, TxPayload,
     Withdraw,
-    CreateDeal,
-    AcceptDeal,
-    DealVisibility,
-    Tx,
-    TxKind,
-    TxPayload,
 };
 
 fn addr(byte: u8) -> Address {
@@ -124,7 +116,9 @@ fn main() {
 
     println!("Submitting {} transactions to sequencer...", txs.len());
     for tx in txs {
-        sequencer.submit_tx_with_validation(tx, false).expect("Failed to submit transaction");
+        sequencer
+            .submit_tx_with_validation(tx, false)
+            .expect("Failed to submit transaction");
     }
 
     println!("Queue length: {} transactions", sequencer.queue_length());
@@ -154,7 +148,10 @@ fn main() {
     for (id, acc) in &state.accounts {
         println!("Account {id}: owner={}", format_address(&acc.owner));
         for b in &acc.balances {
-            println!("  asset={} chain_id={} amount={}", b.asset_id, b.chain_id, b.amount);
+            println!(
+                "  asset={} chain_id={} amount={}",
+                b.asset_id, b.chain_id, b.amount
+            );
         }
     }
 

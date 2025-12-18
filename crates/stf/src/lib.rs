@@ -1,19 +1,7 @@
 use zkclear_state::State;
 use zkclear_types::{
-    AssetId,
-    Balance,
-    ChainId,
-    Deposit,
-    Withdraw,
-    CreateDeal,
-    AcceptDeal,
-    CancelDeal,
-    Deal,
-    DealStatus,
-    DealVisibility,
-    Address,
-    Tx,
-    TxPayload,
+    AcceptDeal, Address, AssetId, Balance, CancelDeal, ChainId, CreateDeal, Deal, DealStatus,
+    DealVisibility, Deposit, Tx, TxPayload, Withdraw,
 };
 
 #[derive(Debug)]
@@ -32,29 +20,41 @@ pub enum StfError {
 
 pub fn apply_tx(state: &mut State, tx: &Tx, block_timestamp: u64) -> Result<(), StfError> {
     validate_nonce(state, tx.from, tx.nonce)?;
-    
+
     let result = match &tx.payload {
-        TxPayload::Deposit(p)    => apply_deposit(state, p),
-        TxPayload::Withdraw(p)   => apply_withdraw(state, tx.from, p),
+        TxPayload::Deposit(p) => apply_deposit(state, p),
+        TxPayload::Withdraw(p) => apply_withdraw(state, tx.from, p),
         TxPayload::CreateDeal(p) => apply_create_deal(state, tx.from, p, block_timestamp),
         TxPayload::AcceptDeal(p) => apply_accept_deal(state, tx.from, p, block_timestamp),
         TxPayload::CancelDeal(p) => apply_cancel_deal(state, tx.from, p),
     };
-    
+
     if result.is_ok() {
         increment_nonce(state, tx.from);
     }
-    
+
     result
 }
 
 fn apply_deposit(state: &mut State, payload: &Deposit) -> Result<(), StfError> {
-    add_balance(state, payload.account, payload.asset_id, payload.amount, payload.chain_id);
+    add_balance(
+        state,
+        payload.account,
+        payload.asset_id,
+        payload.amount,
+        payload.chain_id,
+    );
     Ok(())
 }
 
 fn apply_withdraw(state: &mut State, from: Address, payload: &Withdraw) -> Result<(), StfError> {
-    sub_balance(state, from, payload.asset_id, payload.amount, payload.chain_id)
+    sub_balance(
+        state,
+        from,
+        payload.asset_id,
+        payload.amount,
+        payload.chain_id,
+    )
 }
 
 pub fn apply_block(state: &mut State, txs: &[Tx], block_timestamp: u64) -> Result<(), StfError> {
@@ -64,19 +64,24 @@ pub fn apply_block(state: &mut State, txs: &[Tx], block_timestamp: u64) -> Resul
     Ok(())
 }
 
-fn apply_create_deal(state: &mut State, maker: Address, payload: &CreateDeal, block_timestamp: u64) -> Result<(), StfError> {
+fn apply_create_deal(
+    state: &mut State,
+    maker: Address,
+    payload: &CreateDeal,
+    block_timestamp: u64,
+) -> Result<(), StfError> {
     if state.get_deal(payload.deal_id).is_some() {
         return Err(StfError::DealAlreadyExists);
     }
 
     let is_cross_chain = payload.chain_id_base != payload.chain_id_quote;
-    
+
     let expires_at = payload.expires_at.map(|exp| {
         use zkclear_types::deal;
         let max_expiry = block_timestamp + deal::MAX_DEAL_DURATION_SECONDS;
         exp.min(max_expiry)
     });
-    
+
     let deal = Deal {
         id: payload.deal_id,
         maker,
@@ -101,8 +106,24 @@ fn apply_create_deal(state: &mut State, maker: Address, payload: &CreateDeal, bl
     Ok(())
 }
 
-fn apply_accept_deal(state: &mut State, taker: Address, payload: &AcceptDeal, block_timestamp: u64) -> Result<(), StfError> {
-    let (maker_addr, asset_base, asset_quote, chain_id_base, chain_id_quote, amount_remaining, price_quote_per_base, _expires_at, _visibility, _expected_taker) = {
+fn apply_accept_deal(
+    state: &mut State,
+    taker: Address,
+    payload: &AcceptDeal,
+    block_timestamp: u64,
+) -> Result<(), StfError> {
+    let (
+        maker_addr,
+        asset_base,
+        asset_quote,
+        chain_id_base,
+        chain_id_quote,
+        amount_remaining,
+        price_quote_per_base,
+        _expires_at,
+        _visibility,
+        _expected_taker,
+    ) = {
         let deal = state
             .get_deal(payload.deal_id)
             .ok_or(StfError::DealNotFound)?;
@@ -177,7 +198,11 @@ fn apply_accept_deal(state: &mut State, taker: Address, payload: &AcceptDeal, bl
     Ok(())
 }
 
-fn apply_cancel_deal(state: &mut State, caller: Address, payload: &CancelDeal) -> Result<(), StfError> {
+fn apply_cancel_deal(
+    state: &mut State,
+    caller: Address,
+    payload: &CancelDeal,
+) -> Result<(), StfError> {
     let deal = state
         .get_deal_mut(payload.deal_id)
         .ok_or(StfError::DealNotFound)?;
@@ -195,7 +220,13 @@ fn apply_cancel_deal(state: &mut State, caller: Address, payload: &CancelDeal) -
     Ok(())
 }
 
-fn add_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128, chain_id: ChainId) {
+fn add_balance(
+    state: &mut State,
+    owner: Address,
+    asset_id: AssetId,
+    amount: u128,
+    chain_id: ChainId,
+) {
     let account = state.get_or_create_account_by_owner(owner);
 
     for b in &mut account.balances {
@@ -212,7 +243,13 @@ fn add_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u12
     });
 }
 
-fn sub_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128, chain_id: ChainId) -> Result<(), StfError> {
+fn sub_balance(
+    state: &mut State,
+    owner: Address,
+    asset_id: AssetId,
+    amount: u128,
+    chain_id: ChainId,
+) -> Result<(), StfError> {
     let account = state.get_or_create_account_by_owner(owner);
 
     for b in &mut account.balances {
@@ -228,7 +265,13 @@ fn sub_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u12
     Err(StfError::BalanceTooLow)
 }
 
-fn ensure_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128, chain_id: ChainId) -> Result<(), StfError> {
+fn ensure_balance(
+    state: &mut State,
+    owner: Address,
+    asset_id: AssetId,
+    amount: u128,
+    chain_id: ChainId,
+) -> Result<(), StfError> {
     let account = state.get_or_create_account_by_owner(owner);
 
     for b in &account.balances {
@@ -246,11 +289,11 @@ fn ensure_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: 
 fn validate_nonce(state: &mut State, owner: Address, tx_nonce: u64) -> Result<(), StfError> {
     let account = state.get_or_create_account_by_owner(owner);
     let expected_nonce = account.nonce;
-    
+
     if tx_nonce != expected_nonce {
         return Err(StfError::InvalidNonce);
     }
-    
+
     Ok(())
 }
 

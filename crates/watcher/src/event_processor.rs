@@ -43,4 +43,3 @@ impl EventProcessor {
         Ok(())
     }
 }
-

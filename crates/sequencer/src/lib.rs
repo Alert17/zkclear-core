@@ -75,19 +75,26 @@ impl Sequencer {
     }
 
     fn load_state_from_storage(&mut self, storage: Arc<dyn Storage>) -> Result<(), SequencerError> {
-        let latest_block_id = storage.get_latest_block_id()
-            .map_err(|e| SequencerError::StorageError(format!("Failed to get latest block ID: {:?}", e)))?
+        let latest_block_id = storage
+            .get_latest_block_id()
+            .map_err(|e| {
+                SequencerError::StorageError(format!("Failed to get latest block ID: {:?}", e))
+            })?
             .unwrap_or(0);
-        
+
         match storage.get_latest_state_snapshot() {
             Ok(Some((snapshot_state, snapshot_block_id))) => {
                 *self.state.lock().unwrap() = snapshot_state;
                 *self.last_snapshot_block_id.lock().unwrap() = snapshot_block_id;
-                
+
                 if latest_block_id > snapshot_block_id {
-                    self.replay_blocks_from_storage(&*storage, snapshot_block_id + 1, latest_block_id)?;
+                    self.replay_blocks_from_storage(
+                        &*storage,
+                        snapshot_block_id + 1,
+                        latest_block_id,
+                    )?;
                 }
-                
+
                 *self.current_block_id.lock().unwrap() = latest_block_id + 1;
             }
             Ok(None) => {
@@ -97,16 +104,26 @@ impl Sequencer {
                 *self.current_block_id.lock().unwrap() = latest_block_id + 1;
                 *self.last_snapshot_block_id.lock().unwrap() = 0;
             }
-            Err(e) => return Err(SequencerError::StorageError(format!("Failed to load state: {:?}", e))),
+            Err(e) => {
+                return Err(SequencerError::StorageError(format!(
+                    "Failed to load state: {:?}",
+                    e
+                )))
+            }
         }
-        
+
         self.storage = Some(storage);
         Ok(())
     }
 
-    fn replay_blocks_from_storage(&self, storage: &dyn Storage, from_block: BlockId, to_block: BlockId) -> Result<(), SequencerError> {
+    fn replay_blocks_from_storage(
+        &self,
+        storage: &dyn Storage,
+        from_block: BlockId,
+        to_block: BlockId,
+    ) -> Result<(), SequencerError> {
         let mut state = self.state.lock().unwrap();
-        
+
         for block_id in from_block..=to_block {
             match storage.get_block(block_id) {
                 Ok(Some(block)) => {
@@ -114,14 +131,20 @@ impl Sequencer {
                         .map_err(SequencerError::ExecutionFailed)?;
                 }
                 Ok(None) => {
-                    return Err(SequencerError::StorageError(format!("Block {} not found", block_id)));
+                    return Err(SequencerError::StorageError(format!(
+                        "Block {} not found",
+                        block_id
+                    )));
                 }
                 Err(e) => {
-                    return Err(SequencerError::StorageError(format!("Failed to load block {}: {:?}", block_id, e)));
+                    return Err(SequencerError::StorageError(format!(
+                        "Failed to load block {}: {:?}",
+                        block_id, e
+                    )));
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -132,23 +155,27 @@ impl Sequencer {
     pub fn submit_tx_with_validation(&self, tx: Tx, validate: bool) -> Result<(), SequencerError> {
         if validate {
             let state = self.state.lock().unwrap();
-            
+
             match validate_tx(&state, &tx) {
                 Ok(()) => {}
-                Err(ValidationError::InvalidSignature) => return Err(SequencerError::InvalidSignature),
+                Err(ValidationError::InvalidSignature) => {
+                    return Err(SequencerError::InvalidSignature)
+                }
                 Err(ValidationError::InvalidNonce) => return Err(SequencerError::InvalidNonce),
-                Err(ValidationError::SignatureRecoveryFailed) => return Err(SequencerError::InvalidSignature),
+                Err(ValidationError::SignatureRecoveryFailed) => {
+                    return Err(SequencerError::InvalidSignature)
+                }
             }
-            
+
             drop(state);
         }
-        
+
         let mut queue = self.tx_queue.lock().unwrap();
-        
+
         if queue.len() >= self.max_queue_size {
             return Err(SequencerError::QueueFull);
         }
-        
+
         queue.push_back(tx);
         Ok(())
     }
@@ -156,14 +183,14 @@ impl Sequencer {
     pub fn build_block(&self) -> Result<Block, SequencerError> {
         let mut queue = self.tx_queue.lock().unwrap();
         let block_id = *self.current_block_id.lock().unwrap();
-        
+
         if queue.is_empty() {
             return Err(SequencerError::NoTransactions);
         }
-        
+
         let mut transactions = Vec::new();
         let count = queue.len().min(self.max_txs_per_block);
-        
+
         for _ in 0..count {
             if let Some(tx) = queue.pop_front() {
                 transactions.push(tx);
@@ -171,7 +198,7 @@ impl Sequencer {
                 break;
             }
         }
-        
+
         let block = Block {
             id: block_id,
             transactions,
@@ -180,7 +207,7 @@ impl Sequencer {
                 .unwrap()
                 .as_secs(),
         };
-        
+
         Ok(block)
     }
 
@@ -189,48 +216,58 @@ impl Sequencer {
         if block.id != expected_id {
             return Err(SequencerError::InvalidBlockId);
         }
-        
+
         let mut state = self.state.lock().unwrap();
-        
+
         match apply_block(&mut state, &block.transactions, block.timestamp) {
             Ok(()) => {
                 let mut block_id = self.current_block_id.lock().unwrap();
                 *block_id += 1;
                 drop(block_id);
-                
+
                 if let Some(ref storage) = self.storage {
-                    storage.save_block(&block)
-                        .map_err(|e| SequencerError::StorageError(format!("Failed to save block: {:?}", e)))?;
-                    
+                    storage.save_block(&block).map_err(|e| {
+                        SequencerError::StorageError(format!("Failed to save block: {:?}", e))
+                    })?;
+
                     for (index, tx) in block.transactions.iter().enumerate() {
-                        storage.save_transaction(tx, block.id, index)
-                            .map_err(|e| SequencerError::StorageError(format!("Failed to save transaction: {:?}", e)))?;
+                        storage.save_transaction(tx, block.id, index).map_err(|e| {
+                            SequencerError::StorageError(format!(
+                                "Failed to save transaction: {:?}",
+                                e
+                            ))
+                        })?;
                     }
-                    
+
                     for deal in state.deals.values() {
-                        storage.save_deal(deal)
-                            .map_err(|e| SequencerError::StorageError(format!("Failed to save deal: {:?}", e)))?;
+                        storage.save_deal(deal).map_err(|e| {
+                            SequencerError::StorageError(format!("Failed to save deal: {:?}", e))
+                        })?;
                     }
-                    
+
                     let last_snapshot = *self.last_snapshot_block_id.lock().unwrap();
                     let blocks_since_snapshot = block.id.saturating_sub(last_snapshot);
-                    
+
                     if blocks_since_snapshot >= self.snapshot_interval {
                         let state_clone = state.clone();
                         drop(state);
-                        
-                        storage.save_state_snapshot(&state_clone, block.id)
-                            .map_err(|e| SequencerError::StorageError(format!("Failed to save state snapshot: {:?}", e)))?;
-                        
+
+                        storage
+                            .save_state_snapshot(&state_clone, block.id)
+                            .map_err(|e| {
+                                SequencerError::StorageError(format!(
+                                    "Failed to save state snapshot: {:?}",
+                                    e
+                                ))
+                            })?;
+
                         *self.last_snapshot_block_id.lock().unwrap() = block.id;
                     }
                 }
-                
+
                 Ok(())
             }
-            Err(e) => {
-                Err(SequencerError::ExecutionFailed(e))
-            }
+            Err(e) => Err(SequencerError::ExecutionFailed(e)),
         }
     }
 
@@ -260,12 +297,15 @@ impl Sequencer {
         if let Some(ref storage) = self.storage {
             let state = self.state.lock().unwrap();
             let block_id = *self.current_block_id.lock().unwrap();
-            
+
             let state_clone = state.clone();
             drop(state);
-            
-            storage.save_state_snapshot(&state_clone, block_id)
-                .map_err(|e| SequencerError::StorageError(format!("Failed to save state snapshot: {:?}", e)))?;
+
+            storage
+                .save_state_snapshot(&state_clone, block_id)
+                .map_err(|e| {
+                    SequencerError::StorageError(format!("Failed to save state snapshot: {:?}", e))
+                })?;
         }
         Ok(())
     }
@@ -280,7 +320,7 @@ impl Default for Sequencer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zkclear_types::{Tx, TxKind, TxPayload, Deposit, Address};
+    use zkclear_types::{Address, Deposit, Tx, TxKind, TxPayload};
 
     fn dummy_tx(id: u64, from: Address, nonce: u64) -> Tx {
         Tx {
@@ -303,11 +343,13 @@ mod tests {
     fn test_submit_and_build_block() {
         let sequencer = Sequencer::with_config(100, 10);
         let addr = [1u8; 20];
-        
+
         for i in 0..5 {
-            sequencer.submit_tx_with_validation(dummy_tx(i, addr, i), false).unwrap();
+            sequencer
+                .submit_tx_with_validation(dummy_tx(i, addr, i), false)
+                .unwrap();
         }
-        
+
         let block = sequencer.build_block().unwrap();
         assert_eq!(block.transactions.len(), 5);
         assert_eq!(sequencer.queue_length(), 0);
@@ -317,13 +359,15 @@ mod tests {
     fn test_queue_full() {
         let sequencer = Sequencer::with_config(5, 10);
         let addr = [1u8; 20];
-        
+
         for i in 0..5 {
-            sequencer.submit_tx_with_validation(dummy_tx(i, addr, i), false).unwrap();
+            sequencer
+                .submit_tx_with_validation(dummy_tx(i, addr, i), false)
+                .unwrap();
         }
-        
+
         match sequencer.submit_tx_with_validation(dummy_tx(5, addr, 5), false) {
-            Err(SequencerError::QueueFull) => {},
+            Err(SequencerError::QueueFull) => {}
             _ => panic!("Expected QueueFull error"),
         }
     }
@@ -332,10 +376,12 @@ mod tests {
     fn test_execute_block() {
         let sequencer = Sequencer::new();
         let addr = [1u8; 20];
-        
-        sequencer.submit_tx_with_validation(dummy_tx(0, addr, 0), false).unwrap();
+
+        sequencer
+            .submit_tx_with_validation(dummy_tx(0, addr, 0), false)
+            .unwrap();
         let block = sequencer.build_block().unwrap();
-        
+
         sequencer.execute_block(block).unwrap();
         assert_eq!(sequencer.get_current_block_id(), 1);
     }
@@ -344,12 +390,13 @@ mod tests {
     fn test_build_and_execute() {
         let sequencer = Sequencer::new();
         let addr = [1u8; 20];
-        
-        sequencer.submit_tx_with_validation(dummy_tx(0, addr, 0), false).unwrap();
+
+        sequencer
+            .submit_tx_with_validation(dummy_tx(0, addr, 0), false)
+            .unwrap();
         let block = sequencer.build_and_execute_block().unwrap();
-        
+
         assert_eq!(block.id, 0);
         assert_eq!(sequencer.get_current_block_id(), 1);
     }
 }
-

@@ -93,13 +93,13 @@ mod tests {
     fn test_get_or_create_account_by_owner() {
         let mut state = State::new();
         let addr = dummy_address(1);
-        
+
         let account = state.get_or_create_account_by_owner(addr);
         assert_eq!(account.owner, addr);
         assert_eq!(account.id, 0);
         assert_eq!(account.balances.len(), 0);
         assert_eq!(account.nonce, 0);
-        
+
         let account2 = state.get_or_create_account_by_owner(addr);
         assert_eq!(account2.id, 0);
         assert_eq!(state.accounts.len(), 1);
@@ -109,13 +109,13 @@ mod tests {
     fn test_get_account_by_address() {
         let mut state = State::new();
         let addr = dummy_address(1);
-        
+
         state.get_or_create_account_by_owner(addr);
-        
+
         let account = state.get_account_by_address(addr);
         assert!(account.is_some());
         assert_eq!(account.unwrap().owner, addr);
-        
+
         let unknown_addr = dummy_address(99);
         assert!(state.get_account_by_address(unknown_addr).is_none());
     }
@@ -124,21 +124,21 @@ mod tests {
     fn test_upsert_account() {
         let mut state = State::new();
         let addr = dummy_address(1);
-        
+
         let account = Account {
             id: 0,
             owner: addr,
-            balances: vec![Balance { 
-                asset_id: 0, 
+            balances: vec![Balance {
+                asset_id: 0,
                 amount: 100,
                 chain_id: zkclear_types::chain_ids::ETHEREUM,
             }],
             nonce: 5,
             created_at: 1000,
         };
-        
+
         state.upsert_account(account);
-        
+
         let retrieved = state.get_account(0);
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().nonce, 5);
@@ -149,7 +149,7 @@ mod tests {
     fn test_upsert_deal() {
         let mut state = State::new();
         let maker = dummy_address(1);
-        
+
         let deal = Deal {
             id: 42,
             maker,
@@ -168,9 +168,9 @@ mod tests {
             external_ref: None,
             is_cross_chain: false,
         };
-        
+
         state.upsert_deal(deal);
-        
+
         let retrieved = state.get_deal(42);
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().maker, maker);
@@ -182,13 +182,13 @@ mod tests {
         let mut state = State::new();
         let addr1 = dummy_address(1);
         let addr2 = dummy_address(2);
-        
+
         let acc1 = state.get_or_create_account_by_owner(addr1);
         assert_eq!(acc1.id, 0);
-        
+
         let acc2 = state.get_or_create_account_by_owner(addr2);
         assert_eq!(acc2.id, 1);
-        
+
         assert_eq!(state.accounts.len(), 2);
     }
 }

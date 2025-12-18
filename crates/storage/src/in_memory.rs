@@ -1,8 +1,8 @@
+use crate::storage_trait::{Storage, StorageError, TxId};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use zkclear_state::State;
 use zkclear_types::{Block, BlockId, Deal, DealId, Tx};
-use crate::storage_trait::{Storage, StorageError, TxId};
 
 pub struct InMemoryStorage {
     blocks: Arc<RwLock<HashMap<BlockId, Block>>>,
@@ -28,14 +28,14 @@ impl Storage for InMemoryStorage {
     fn save_block(&self, block: &Block) -> Result<(), StorageError> {
         let mut blocks = self.blocks.write().unwrap();
         blocks.insert(block.id, block.clone());
-        
+
         let mut latest = self.latest_block_id.write().unwrap();
         *latest = Some(block.id);
-        
+
         for (index, tx) in block.transactions.iter().enumerate() {
             self.save_transaction(tx, block.id, index)?;
         }
-        
+
         Ok(())
     }
 
@@ -49,7 +49,12 @@ impl Storage for InMemoryStorage {
         Ok(*latest)
     }
 
-    fn save_transaction(&self, tx: &Tx, block_id: BlockId, index: usize) -> Result<(), StorageError> {
+    fn save_transaction(
+        &self,
+        tx: &Tx,
+        block_id: BlockId,
+        index: usize,
+    ) -> Result<(), StorageError> {
         let mut transactions = self.transactions.write().unwrap();
         transactions.insert((block_id, index), tx.clone());
         Ok(())
@@ -97,14 +102,14 @@ impl Storage for InMemoryStorage {
         let snapshots = self.state_snapshots.read().unwrap();
         let mut latest_block_id = None;
         let mut latest_state = None;
-        
+
         for (block_id, state) in snapshots.iter() {
             if latest_block_id.is_none() || *block_id > latest_block_id.unwrap() {
                 latest_block_id = Some(*block_id);
                 latest_state = Some(state.clone());
             }
         }
-        
+
         Ok(latest_block_id.and_then(|id| latest_state.map(|s| (s, id))))
     }
 
@@ -122,7 +127,9 @@ impl Default for InMemoryStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zkclear_types::{Address, Tx, TxKind, TxPayload, Deposit, Deal, DealStatus, DealVisibility};
+    use zkclear_types::{
+        Address, Deal, DealStatus, DealVisibility, Deposit, Tx, TxKind, TxPayload,
+    };
 
     fn dummy_address(byte: u8) -> Address {
         [byte; 20]
@@ -288,4 +295,3 @@ mod tests {
         assert_eq!(deals.len(), 5);
     }
 }
-

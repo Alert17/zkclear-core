@@ -19,16 +19,15 @@ pub async fn get_account_balance(
     State(state): State<Arc<ApiState>>,
     Path((address, asset_id)): Path<(String, AssetId)>,
 ) -> Result<Json<AccountBalanceResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let address_bytes = hex::decode(address.trim_start_matches("0x"))
-        .map_err(|_| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "InvalidAddress".to_string(),
-                    message: "Invalid address format".to_string(),
-                }),
-            )
-        })?;
+    let address_bytes = hex::decode(address.trim_start_matches("0x")).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "InvalidAddress".to_string(),
+                message: "Invalid address format".to_string(),
+            }),
+        )
+    })?;
 
     if address_bytes.len() != 20 {
         return Err((
@@ -45,18 +44,16 @@ pub async fn get_account_balance(
 
     let state_handle = state.sequencer.get_state();
     let state_guard = state_handle.lock().unwrap();
-    
-    let account = state_guard
-        .get_account_by_address(addr)
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "AccountNotFound".to_string(),
-                    message: "Account not found".to_string(),
-                }),
-            )
-        })?;
+
+    let account = state_guard.get_account_by_address(addr).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "AccountNotFound".to_string(),
+                message: "Account not found".to_string(),
+            }),
+        )
+    })?;
 
     let balance = account
         .balances
@@ -77,16 +74,15 @@ pub async fn get_account_state(
     State(state): State<Arc<ApiState>>,
     Path(address): Path<String>,
 ) -> Result<Json<AccountStateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let address_bytes = hex::decode(address.trim_start_matches("0x"))
-        .map_err(|_| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "InvalidAddress".to_string(),
-                    message: "Invalid address format".to_string(),
-                }),
-            )
-        })?;
+    let address_bytes = hex::decode(address.trim_start_matches("0x")).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "InvalidAddress".to_string(),
+                message: "Invalid address format".to_string(),
+            }),
+        )
+    })?;
 
     if address_bytes.len() != 20 {
         return Err((
@@ -103,18 +99,16 @@ pub async fn get_account_state(
 
     let state_handle = state.sequencer.get_state();
     let state_guard = state_handle.lock().unwrap();
-    
-    let account = state_guard
-        .get_account_by_address(addr)
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "AccountNotFound".to_string(),
-                    message: "Account not found".to_string(),
-                }),
-            )
-        })?;
+
+    let account = state_guard.get_account_by_address(addr).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "AccountNotFound".to_string(),
+                message: "Account not found".to_string(),
+            }),
+        )
+    })?;
 
     let balances: Vec<BalanceInfo> = account
         .balances
@@ -151,18 +145,16 @@ pub async fn get_deal_details(
 ) -> Result<Json<DealDetailsResponse>, (StatusCode, Json<ErrorResponse>)> {
     let state_handle = state.sequencer.get_state();
     let state_guard = state_handle.lock().unwrap();
-    
-    let deal = state_guard
-        .get_deal(deal_id)
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "DealNotFound".to_string(),
-                    message: format!("Deal {} not found", deal_id),
-                }),
-            )
-        })?;
+
+    let deal = state_guard.get_deal(deal_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "DealNotFound".to_string(),
+                message: format!("Deal {} not found", deal_id),
+            }),
+        )
+    })?;
 
     Ok(Json(DealDetailsResponse {
         deal_id: deal.id,
@@ -236,9 +228,7 @@ pub async fn get_block_info(
     }))
 }
 
-pub async fn get_queue_status(
-    State(state): State<Arc<ApiState>>,
-) -> Json<QueueStatusResponse> {
+pub async fn get_queue_status(State(state): State<Arc<ApiState>>) -> Json<QueueStatusResponse> {
     Json(QueueStatusResponse {
         pending_transactions: state.sequencer.queue_length(),
         max_queue_size: 10000,
@@ -336,7 +326,8 @@ pub async fn jsonrpc_handler(
                         result: None,
                         error: Some(JsonRpcError {
                             code: -32602,
-                            message: "Invalid params: failed to deserialize transaction".to_string(),
+                            message: "Invalid params: failed to deserialize transaction"
+                                .to_string(),
                             data: None,
                         }),
                         id: request.id,
@@ -408,7 +399,8 @@ pub async fn jsonrpc_handler(
                 result: None,
                 error: Some(JsonRpcError {
                     code: -32601,
-                    message: "Use REST endpoint /api/v1/account/:address/balance/:asset_id instead".to_string(),
+                    message: "Use REST endpoint /api/v1/account/:address/balance/:asset_id instead"
+                        .to_string(),
                     data: None,
                 }),
                 id: request.id,
@@ -435,4 +427,3 @@ pub async fn jsonrpc_handler(
         id: request.id,
     })
 }
-
