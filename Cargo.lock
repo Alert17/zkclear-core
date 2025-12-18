@@ -1328,6 +1328,7 @@ name = "zkclear-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bincode",
  "hex",
  "serde",
  "serde_json",

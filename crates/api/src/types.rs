@@ -5,6 +5,7 @@ use zkclear_types::{Address, AssetId, BlockId, DealId};
 pub struct AccountBalanceResponse {
     pub address: Address,
     pub asset_id: AssetId,
+    pub chain_id: zkclear_types::ChainId,
     pub amount: u128,
 }
 
@@ -20,6 +21,7 @@ pub struct AccountStateResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BalanceInfo {
     pub asset_id: AssetId,
+    pub chain_id: zkclear_types::ChainId,
     pub amount: u128,
 }
 
@@ -30,12 +32,15 @@ pub struct DealDetailsResponse {
     pub taker: Option<Address>,
     pub asset_base: AssetId,
     pub asset_quote: AssetId,
+    pub chain_id_base: zkclear_types::ChainId,
+    pub chain_id_quote: zkclear_types::ChainId,
     pub amount_base: u128,
     pub amount_remaining: u128,
     pub price_quote_per_base: u128,
     pub status: String,
     pub created_at: u64,
     pub expires_at: Option<u64>,
+    pub is_cross_chain: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -62,13 +62,14 @@ pub async fn get_account_balance(
         .balances
         .iter()
         .find(|b| b.asset_id == asset_id)
-        .map(|b| b.amount)
-        .unwrap_or(0);
+        .map(|b| (b.chain_id, b.amount))
+        .unwrap_or((zkclear_types::chain_ids::ETHEREUM, 0));
 
     Ok(Json(AccountBalanceResponse {
         address: addr,
         asset_id,
-        amount: balance,
+        chain_id: balance.0,
+        amount: balance.1,
     }))
 }
 
@@ -120,6 +121,7 @@ pub async fn get_account_state(
         .iter()
         .map(|b| BalanceInfo {
             asset_id: b.asset_id,
+            chain_id: b.chain_id,
             amount: b.amount,
         })
         .collect();
@@ -168,12 +170,15 @@ pub async fn get_deal_details(
         taker: deal.taker,
         asset_base: deal.asset_base,
         asset_quote: deal.asset_quote,
+        chain_id_base: deal.chain_id_base,
+        chain_id_quote: deal.chain_id_quote,
         amount_base: deal.amount_base,
         amount_remaining: deal.amount_remaining,
         price_quote_per_base: deal.price_quote_per_base,
         status: format!("{:?}", deal.status),
         created_at: deal.created_at,
         expires_at: deal.expires_at,
+        is_cross_chain: deal.is_cross_chain,
     }))
 }
 
@@ -241,8 +246,39 @@ pub async fn get_queue_status(
     })
 }
 
+pub async fn get_supported_chains() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "chains": [
+            {
+                "chain_id": zkclear_types::chain_ids::ETHEREUM,
+                "name": "Ethereum"
+            },
+            {
+                "chain_id": zkclear_types::chain_ids::POLYGON,
+                "name": "Polygon"
+            },
+            {
+                "chain_id": zkclear_types::chain_ids::MANTLE,
+                "name": "Mantle"
+            },
+            {
+                "chain_id": zkclear_types::chain_ids::ARBITRUM,
+                "name": "Arbitrum"
+            },
+            {
+                "chain_id": zkclear_types::chain_ids::OPTIMISM,
+                "name": "Optimism"
+            },
+            {
+                "chain_id": zkclear_types::chain_ids::BASE,
+                "name": "Base"
+            }
+        ]
+    }))
+}
+
 pub async fn jsonrpc_handler(
-    State(_state): State<Arc<ApiState>>,
+    State(state): State<Arc<ApiState>>,
     Json(request): Json<JsonRpcRequest>,
 ) -> Json<JsonRpcResponse> {
     if request.jsonrpc != "2.0" {
@@ -258,28 +294,144 @@ pub async fn jsonrpc_handler(
         });
     }
 
-    let error = match request.method.as_str() {
-        "submit_tx" => JsonRpcError {
-            code: -32601,
-            message: "Method not implemented yet".to_string(),
-            data: None,
-        },
-        "get_account_balance" => JsonRpcError {
-            code: -32601,
-            message: "Use REST endpoint instead".to_string(),
-            data: None,
-        },
-        _ => JsonRpcError {
-            code: -32601,
-            message: "Method not found".to_string(),
-            data: None,
-        },
+    let result = match request.method.as_str() {
+        "submit_tx" => {
+            let tx_hex = match request.params.get("tx") {
+                Some(serde_json::Value::String(hex_str)) => hex_str,
+                _ => {
+                    return Json(JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32602,
+                            message: "Invalid params: 'tx' must be a hex string".to_string(),
+                            data: None,
+                        }),
+                        id: request.id,
+                    });
+                }
+            };
+
+            let tx_bytes = match hex::decode(tx_hex.trim_start_matches("0x")) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    return Json(JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32602,
+                            message: "Invalid params: 'tx' must be valid hex".to_string(),
+                            data: None,
+                        }),
+                        id: request.id,
+                    });
+                }
+            };
+
+            let tx: zkclear_types::Tx = match bincode::deserialize(&tx_bytes) {
+                Ok(tx) => tx,
+                Err(_) => {
+                    return Json(JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32602,
+                            message: "Invalid params: failed to deserialize transaction".to_string(),
+                            data: None,
+                        }),
+                        id: request.id,
+                    });
+                }
+            };
+
+            match state.sequencer.submit_tx(tx) {
+                Ok(()) => {
+                    let tx_hash = hex::encode(&tx_bytes);
+                    Some(serde_json::json!({
+                        "tx_hash": tx_hash,
+                        "status": "queued"
+                    }))
+                }
+                Err(zkclear_sequencer::SequencerError::QueueFull) => {
+                    return Json(JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32000,
+                            message: "Queue full".to_string(),
+                            data: None,
+                        }),
+                        id: request.id,
+                    });
+                }
+                Err(zkclear_sequencer::SequencerError::InvalidSignature) => {
+                    return Json(JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32001,
+                            message: "Invalid signature".to_string(),
+                            data: None,
+                        }),
+                        id: request.id,
+                    });
+                }
+                Err(zkclear_sequencer::SequencerError::InvalidNonce) => {
+                    return Json(JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32002,
+                            message: "Invalid nonce".to_string(),
+                            data: None,
+                        }),
+                        id: request.id,
+                    });
+                }
+                Err(e) => {
+                    return Json(JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32003,
+                            message: format!("Submission failed: {:?}", e),
+                            data: None,
+                        }),
+                        id: request.id,
+                    });
+                }
+            }
+        }
+        "get_account_balance" => {
+            return Json(JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(JsonRpcError {
+                    code: -32601,
+                    message: "Use REST endpoint /api/v1/account/:address/balance/:asset_id instead".to_string(),
+                    data: None,
+                }),
+                id: request.id,
+            });
+        }
+        _ => {
+            return Json(JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(JsonRpcError {
+                    code: -32601,
+                    message: "Method not found".to_string(),
+                    data: None,
+                }),
+                id: request.id,
+            });
+        }
     };
 
     Json(JsonRpcResponse {
         jsonrpc: "2.0".to_string(),
-        result: None,
-        error: Some(error),
+        result,
+        error: None,
         id: request.id,
     })
 }

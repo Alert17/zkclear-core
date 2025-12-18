@@ -15,6 +15,7 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .route("/api/v1/deal/:deal_id", get(get_deal_details))
         .route("/api/v1/block/:block_id", get(get_block_info))
         .route("/api/v1/queue/status", get(get_queue_status))
+        .route("/api/v1/chains", get(get_supported_chains))
         .route("/jsonrpc", post(jsonrpc_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)
