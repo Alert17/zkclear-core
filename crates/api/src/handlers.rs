@@ -3,11 +3,10 @@ use axum::{
     http::StatusCode,
     response::Json,
 };
-use serde_json::json;
 use std::sync::Arc;
 use zkclear_sequencer::Sequencer;
 use zkclear_storage::Storage;
-use zkclear_types::{Address, AssetId, BlockId, DealId};
+use zkclear_types::{AssetId, BlockId, DealId};
 
 use crate::types::*;
 

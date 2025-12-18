@@ -28,6 +28,8 @@ fn main() {
 
     let usdc: AssetId = 0;
     let btc: AssetId = 1;
+    let ethereum_chain = zkclear_types::chain_ids::ETHEREUM;
+    let polygon_chain = zkclear_types::chain_ids::POLYGON;
 
     let dummy_hash = [0u8; 32];
 
@@ -41,7 +43,8 @@ fn main() {
                 tx_hash: dummy_hash,
                 account: maker,
                 asset_id: usdc,
-                amount: 1_000_000,  
+                amount: 1_000_000,
+                chain_id: ethereum_chain,
             }),
             signature: [0u8; 65],
         },
@@ -55,6 +58,7 @@ fn main() {
                 account: taker,
                 asset_id: usdc,
                 amount: 1_000_000,
+                chain_id: ethereum_chain,
             }),
             signature: [0u8; 65],
         },
@@ -68,6 +72,7 @@ fn main() {
                 account: maker,
                 asset_id: btc,
                 amount: 10_000,
+                chain_id: polygon_chain,
             }),
             signature: [0u8; 65],
         },
@@ -82,6 +87,8 @@ fn main() {
                 taker: None,
                 asset_base: btc,
                 asset_quote: usdc,
+                chain_id_base: polygon_chain,
+                chain_id_quote: ethereum_chain,
                 amount_base: 1_000,
                 price_quote_per_base: 100,
                 expires_at: None,
@@ -109,6 +116,7 @@ fn main() {
                 asset_id: usdc,
                 amount: 50_000,
                 to: maker,
+                chain_id: ethereum_chain,
             }),
             signature: [0u8; 65],
         },
@@ -146,7 +154,7 @@ fn main() {
     for (id, acc) in &state.accounts {
         println!("Account {id}: owner={}", format_address(&acc.owner));
         for b in &acc.balances {
-            println!("  asset={} amount={}", b.asset_id, b.amount);
+            println!("  asset={} chain_id={} amount={}", b.asset_id, b.chain_id, b.amount);
         }
     }
 

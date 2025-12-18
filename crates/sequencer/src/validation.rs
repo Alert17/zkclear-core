@@ -86,11 +86,13 @@ fn tx_hash(tx: &Tx) -> Vec<u8> {
             data.extend_from_slice(&p.account);
             data.extend_from_slice(&p.asset_id.to_le_bytes());
             data.extend_from_slice(&p.amount.to_le_bytes());
+            data.extend_from_slice(&p.chain_id.to_le_bytes());
         }
         zkclear_types::TxPayload::Withdraw(p) => {
             data.extend_from_slice(&p.asset_id.to_le_bytes());
             data.extend_from_slice(&p.amount.to_le_bytes());
             data.extend_from_slice(&p.to);
+            data.extend_from_slice(&p.chain_id.to_le_bytes());
         }
         zkclear_types::TxPayload::CreateDeal(p) => {
             data.extend_from_slice(&p.deal_id.to_le_bytes());
@@ -103,6 +105,8 @@ fn tx_hash(tx: &Tx) -> Vec<u8> {
             }
             data.extend_from_slice(&p.asset_base.to_le_bytes());
             data.extend_from_slice(&p.asset_quote.to_le_bytes());
+            data.extend_from_slice(&p.chain_id_base.to_le_bytes());
+            data.extend_from_slice(&p.chain_id_quote.to_le_bytes());
             data.extend_from_slice(&p.amount_base.to_le_bytes());
             data.extend_from_slice(&p.price_quote_per_base.to_le_bytes());
         }
@@ -161,6 +165,7 @@ mod tests {
                 account: from,
                 asset_id: 0,
                 amount: 100,
+                chain_id: 1,
             }),
             signature: [0u8; 65],
         }

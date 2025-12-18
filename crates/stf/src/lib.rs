@@ -2,6 +2,7 @@ use zkclear_state::State;
 use zkclear_types::{
     AssetId,
     Balance,
+    ChainId,
     Deposit,
     Withdraw,
     CreateDeal,
@@ -48,12 +49,12 @@ pub fn apply_tx(state: &mut State, tx: &Tx, block_timestamp: u64) -> Result<(), 
 }
 
 fn apply_deposit(state: &mut State, payload: &Deposit) -> Result<(), StfError> {
-    add_balance(state, payload.account, payload.asset_id, payload.amount);
+    add_balance(state, payload.account, payload.asset_id, payload.amount, payload.chain_id);
     Ok(())
 }
 
 fn apply_withdraw(state: &mut State, from: Address, payload: &Withdraw) -> Result<(), StfError> {
-    sub_balance(state, from, payload.asset_id, payload.amount)
+    sub_balance(state, from, payload.asset_id, payload.amount, payload.chain_id)
 }
 
 pub fn apply_block(state: &mut State, txs: &[Tx], block_timestamp: u64) -> Result<(), StfError> {
@@ -68,6 +69,14 @@ fn apply_create_deal(state: &mut State, maker: Address, payload: &CreateDeal, bl
         return Err(StfError::DealAlreadyExists);
     }
 
+    let is_cross_chain = payload.chain_id_base != payload.chain_id_quote;
+    
+    let expires_at = payload.expires_at.map(|exp| {
+        use zkclear_types::deal;
+        let max_expiry = block_timestamp + deal::MAX_DEAL_DURATION_SECONDS;
+        exp.min(max_expiry)
+    });
+    
     let deal = Deal {
         id: payload.deal_id,
         maker,
@@ -75,13 +84,16 @@ fn apply_create_deal(state: &mut State, maker: Address, payload: &CreateDeal, bl
         visibility: payload.visibility,
         asset_base: payload.asset_base,
         asset_quote: payload.asset_quote,
+        chain_id_base: payload.chain_id_base,
+        chain_id_quote: payload.chain_id_quote,
         amount_base: payload.amount_base,
         amount_remaining: payload.amount_base,
         price_quote_per_base: payload.price_quote_per_base,
         status: DealStatus::Pending,
         created_at: block_timestamp,
-        expires_at: payload.expires_at,
+        expires_at,
         external_ref: payload.external_ref.clone(),
+        is_cross_chain,
     };
 
     state.upsert_deal(deal);
@@ -90,7 +102,7 @@ fn apply_create_deal(state: &mut State, maker: Address, payload: &CreateDeal, bl
 }
 
 fn apply_accept_deal(state: &mut State, taker: Address, payload: &AcceptDeal, block_timestamp: u64) -> Result<(), StfError> {
-    let (maker_addr, asset_base, asset_quote, amount_remaining, price_quote_per_base, _expires_at, _visibility, _expected_taker) = {
+    let (maker_addr, asset_base, asset_quote, chain_id_base, chain_id_quote, amount_remaining, price_quote_per_base, _expires_at, _visibility, _expected_taker) = {
         let deal = state
             .get_deal(payload.deal_id)
             .ok_or(StfError::DealNotFound)?;
@@ -126,6 +138,8 @@ fn apply_accept_deal(state: &mut State, taker: Address, payload: &AcceptDeal, bl
             deal.maker,
             deal.asset_base,
             deal.asset_quote,
+            deal.chain_id_base,
+            deal.chain_id_quote,
             deal.amount_remaining,
             deal.price_quote_per_base,
             deal.expires_at,
@@ -143,14 +157,14 @@ fn apply_accept_deal(state: &mut State, taker: Address, payload: &AcceptDeal, bl
         .checked_mul(price_quote_per_base)
         .ok_or(StfError::Overflow)?;
 
-    ensure_balance(state, maker_addr, asset_base, amount_to_fill)?;
-    ensure_balance(state, taker, asset_quote, amount_quote)?;
+    ensure_balance(state, maker_addr, asset_base, amount_to_fill, chain_id_base)?;
+    ensure_balance(state, taker, asset_quote, amount_quote, chain_id_quote)?;
 
-    sub_balance(state, maker_addr, asset_base, amount_to_fill)?;
-    sub_balance(state, taker, asset_quote, amount_quote)?;
+    sub_balance(state, maker_addr, asset_base, amount_to_fill, chain_id_base)?;
+    sub_balance(state, taker, asset_quote, amount_quote, chain_id_quote)?;
 
-    add_balance(state, maker_addr, asset_quote, amount_quote);
-    add_balance(state, taker, asset_base, amount_to_fill);
+    add_balance(state, maker_addr, asset_quote, amount_quote, chain_id_quote);
+    add_balance(state, taker, asset_base, amount_to_fill, chain_id_base);
 
     let deal = state
         .get_deal_mut(payload.deal_id)
@@ -181,11 +195,11 @@ fn apply_cancel_deal(state: &mut State, caller: Address, payload: &CancelDeal) -
     Ok(())
 }
 
-fn add_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128) {
+fn add_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128, chain_id: ChainId) {
     let account = state.get_or_create_account_by_owner(owner);
 
     for b in &mut account.balances {
-        if b.asset_id == asset_id {
+        if b.asset_id == asset_id && b.chain_id == chain_id {
             b.amount = b.amount.saturating_add(amount);
             return;
         }
@@ -194,14 +208,15 @@ fn add_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u12
     account.balances.push(Balance {
         asset_id,
         amount,
+        chain_id,
     });
 }
 
-fn sub_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128) -> Result<(), StfError> {
+fn sub_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128, chain_id: ChainId) -> Result<(), StfError> {
     let account = state.get_or_create_account_by_owner(owner);
 
     for b in &mut account.balances {
-        if b.asset_id == asset_id {
+        if b.asset_id == asset_id && b.chain_id == chain_id {
             if b.amount < amount {
                 return Err(StfError::BalanceTooLow);
             }
@@ -213,11 +228,11 @@ fn sub_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u12
     Err(StfError::BalanceTooLow)
 }
 
-fn ensure_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128) -> Result<(), StfError> {
+fn ensure_balance(state: &mut State, owner: Address, asset_id: AssetId, amount: u128, chain_id: ChainId) -> Result<(), StfError> {
     let account = state.get_or_create_account_by_owner(owner);
 
     for b in &account.balances {
-        if b.asset_id == asset_id {
+        if b.asset_id == asset_id && b.chain_id == chain_id {
             if b.amount < amount {
                 return Err(StfError::BalanceTooLow);
             }
@@ -253,6 +268,10 @@ mod tests {
         [byte; 20]
     }
 
+    fn default_chain_id() -> ChainId {
+        zkclear_types::chain_ids::ETHEREUM
+    }
+
     fn dummy_tx(from: Address, nonce: u64, payload: TxPayload) -> Tx {
         Tx {
             id: 0,
@@ -284,6 +303,7 @@ mod tests {
                 account: addr,
                 asset_id: 0,
                 amount: 1000,
+                chain_id: default_chain_id(),
             }),
         );
 
@@ -310,6 +330,7 @@ mod tests {
                 account: addr,
                 asset_id: 0,
                 amount: 1000,
+                chain_id: default_chain_id(),
             }),
         );
         apply_tx(&mut state, &tx1, block_timestamp).unwrap();
@@ -322,6 +343,7 @@ mod tests {
                 account: addr,
                 asset_id: 1,
                 amount: 500,
+                chain_id: default_chain_id(),
             }),
         );
         apply_tx(&mut state, &tx2, block_timestamp).unwrap();
@@ -345,6 +367,7 @@ mod tests {
                 account: addr,
                 asset_id: 0,
                 amount: 1000,
+                chain_id: default_chain_id(),
             }),
         );
         apply_tx(&mut state, &deposit_tx, block_timestamp).unwrap();
@@ -356,6 +379,7 @@ mod tests {
                 asset_id: 0,
                 amount: 300,
                 to: addr,
+                chain_id: default_chain_id(),
             }),
         );
         apply_tx(&mut state, &withdraw_tx, block_timestamp).unwrap();
@@ -378,6 +402,7 @@ mod tests {
                 account: addr,
                 asset_id: 0,
                 amount: 100,
+                chain_id: default_chain_id(),
             }),
         );
         apply_tx(&mut state, &deposit_tx, block_timestamp).unwrap();
@@ -389,6 +414,7 @@ mod tests {
                 asset_id: 0,
                 amount: 200,
                 to: addr,
+                chain_id: default_chain_id(),
             }),
         );
 
@@ -412,6 +438,7 @@ mod tests {
                 account: maker,
                 asset_id: 0,
                 amount: 10000,
+                chain_id: default_chain_id(),
             }),
         );
         apply_tx(&mut state, &deposit_tx, block_timestamp).unwrap();
@@ -425,6 +452,8 @@ mod tests {
                 taker: None,
                 asset_base: 0,
                 asset_quote: 1,
+                chain_id_base: default_chain_id(),
+                chain_id_quote: default_chain_id(),
                 amount_base: 1000,
                 price_quote_per_base: 100,
                 expires_at: None,
@@ -455,6 +484,7 @@ mod tests {
                 account: maker,
                 asset_id: 0,
                 amount: 10000,
+                chain_id: default_chain_id(),
             }),
         );
         apply_tx(&mut state, &maker_deposit, block_timestamp).unwrap();
@@ -467,6 +497,7 @@ mod tests {
                 account: taker,
                 asset_id: 1,
                 amount: 100000,
+                chain_id: default_chain_id(),
             }),
         );
         apply_tx(&mut state, &taker_deposit, block_timestamp).unwrap();
@@ -480,6 +511,8 @@ mod tests {
                 taker: None,
                 asset_base: 0,
                 asset_quote: 1,
+                chain_id_base: default_chain_id(),
+                chain_id_quote: default_chain_id(),
                 amount_base: 1000,
                 price_quote_per_base: 100,
                 expires_at: None,
@@ -536,6 +569,7 @@ mod tests {
                 account: addr,
                 asset_id: 0,
                 amount: 1000,
+                chain_id: default_chain_id(),
             }),
         );
         apply_tx(&mut state, &tx1, block_timestamp).unwrap();
@@ -548,6 +582,7 @@ mod tests {
                 account: addr,
                 asset_id: 0,
                 amount: 1000,
+                chain_id: default_chain_id(),
             }),
         );
 
@@ -572,6 +607,7 @@ mod tests {
                     account: addr,
                     asset_id: 0,
                     amount: 100,
+                    chain_id: default_chain_id(),
                 }),
             );
             apply_tx(&mut state, &tx, block_timestamp).unwrap();

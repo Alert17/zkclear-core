@@ -287,6 +287,7 @@ mod tests {
                 account: from,
                 asset_id: 0,
                 amount: 100,
+                chain_id: zkclear_types::chain_ids::ETHEREUM,
             }),
             signature: [0u8; 65],
         }

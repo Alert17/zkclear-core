@@ -29,7 +29,10 @@ pub mod limits {
     pub const MAX_DEAL_ID: u64 = u64::MAX;
     pub const MAX_BLOCK_ID: u64 = u64::MAX;
     pub const MAX_CHAIN_ID: u64 = u64::MAX;
-    pub const MAX_BRIDGE_REQUEST_ID: u64 = u64::MAX;
+}
+
+pub mod deal {
+    pub const MAX_DEAL_DURATION_SECONDS: u64 = 7 * 24 * 60 * 60; // 1 week
 }
 
 pub mod defaults {

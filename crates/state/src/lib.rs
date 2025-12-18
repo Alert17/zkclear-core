@@ -128,7 +128,11 @@ mod tests {
         let account = Account {
             id: 0,
             owner: addr,
-            balances: vec![Balance { asset_id: 0, amount: 100 }],
+            balances: vec![Balance { 
+                asset_id: 0, 
+                amount: 100,
+                chain_id: zkclear_types::chain_ids::ETHEREUM,
+            }],
             nonce: 5,
             created_at: 1000,
         };
@@ -152,6 +156,8 @@ mod tests {
             taker: None,
             asset_base: 0,
             asset_quote: 1,
+            chain_id_base: zkclear_types::chain_ids::ETHEREUM,
+            chain_id_quote: zkclear_types::chain_ids::ETHEREUM,
             amount_base: 1000,
             amount_remaining: 1000,
             price_quote_per_base: 100,
@@ -160,6 +166,7 @@ mod tests {
             created_at: 1000,
             expires_at: None,
             external_ref: None,
+            is_cross_chain: false,
         };
         
         state.upsert_deal(deal);

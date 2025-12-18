@@ -7,7 +7,6 @@ pub type DealId = u64;
 pub type AssetId = u16;
 pub type BlockId = u64;
 pub type ChainId = u64;
-pub type BridgeRequestId = u64;
 
 pub type Address = [u8; constants::address::ADDRESS_SIZE];
 pub type Signature = [u8; constants::signature::SIGNATURE_SIZE];
@@ -96,6 +95,10 @@ pub struct Asset {
     pub original_chain_id: Option<ChainId>,
 }
 
+// Note: For asset mapping across chains, one asset_id can have different contract_address
+// on different chains. This is managed in the asset registry (State or separate storage).
+// Example: USDC (asset_id=1) has different addresses on Ethereum, Polygon, Base, etc.
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Deal {
     pub id: DealId,
@@ -123,9 +126,6 @@ pub enum TxKind {
     AcceptDeal,
     CancelDeal,
     Withdraw,
-    CrossChainDeposit,
-    CrossChainWithdraw,
-    BridgeRequest,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -147,9 +147,6 @@ pub enum TxPayload {
     AcceptDeal(AcceptDeal),
     CancelDeal(CancelDeal),
     Withdraw(Withdraw),
-    CrossChainDeposit(CrossChainDeposit),
-    CrossChainWithdraw(CrossChainWithdraw),
-    BridgeRequest(BridgeRequest),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -195,56 +192,6 @@ pub struct Withdraw {
     pub amount: u128,
     pub to: Address,
     pub chain_id: ChainId,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CrossChainDeposit {
-    #[serde(with = "serde_bytes")]
-    pub tx_hash: [u8; constants::transaction::TX_HASH_SIZE],
-    #[serde(with = "serde_bytes")]
-    pub account: Address,
-    pub asset_id: AssetId,
-    pub amount: u128,
-    pub source_chain_id: ChainId,
-    pub destination_chain_id: ChainId,
-    pub bridge_request_id: Option<BridgeRequestId>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CrossChainWithdraw {
-    pub asset_id: AssetId,
-    pub amount: u128,
-    pub to: Address,
-    pub source_chain_id: ChainId,
-    pub destination_chain_id: ChainId,
-    pub bridge_request_id: BridgeRequestId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum BridgeStatus {
-    Pending,
-    Locked,
-    Minted,
-    Completed,
-    Failed,
-    Cancelled,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct BridgeRequest {
-    pub id: BridgeRequestId,
-    pub user: Address,
-    pub asset_id: AssetId,
-    pub amount: u128,
-    pub source_chain_id: ChainId,
-    pub destination_chain_id: ChainId,
-    pub status: BridgeStatus,
-    pub source_tx_hash: Option<[u8; constants::transaction::TX_HASH_SIZE]>,
-    pub destination_tx_hash: Option<[u8; constants::transaction::TX_HASH_SIZE]>,
-    pub created_at: u64,
-    pub completed_at: Option<u64>,
-    #[serde(with = "serde_bytes")]
-    pub proof: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
