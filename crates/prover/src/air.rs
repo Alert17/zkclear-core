@@ -10,7 +10,7 @@
 use winterfell::{
     math::{FieldElement, ToElements},
     Air, AirContext, Assertion, EvaluationFrame, ProofOptions, TraceTable, Proof, TraceInfo,
-    Trace, Prover,
+    Prover,
     crypto::{
         hashers::Blake3_256,
         DefaultRandomCoin,
@@ -22,6 +22,10 @@ use winterfell::{
 #[cfg(feature = "winterfell")]
 use winterfell::math::fields::f64::BaseElement;
 use crate::error::ProverError;
+use zkclear_state::State;
+use zkclear_types::Block;
+use zkclear_stf::apply_tx;
+use sha2::{Digest, Sha256};
 
 /// Public inputs for block state transition
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -287,52 +291,186 @@ impl BlockTransitionProver {
     }
     
     pub fn prove(
-        &self,
+        &mut self,
         public_inputs: BlockTransitionInputs,
         private_inputs: BlockTransitionPrivateInputs,
     ) -> Result<Proof, ProverError> {
+        // Store public inputs for get_pub_inputs method
+        self.set_public_inputs(public_inputs.clone());
+        
         // Build execution trace
         // This trace represents the computation of state transition
-        // TODO: Implement actual trace building based on state transition
         let trace = self.build_trace(&public_inputs, &private_inputs)?;
         
-        // Get trace info for AIR creation
-        let trace_info = trace.info().clone();
+        // Generate proof using Winterfell's Prover trait implementation
+        // The prove method from Prover trait will:
+        // 1. Create AIR instance from trace info
+        // 2. Build extended trace (LDE)
+        // 3. Evaluate constraints
+        // 4. Generate STARK proof
+        let proof = <Self as Prover>::prove(self, trace)
+            .map_err(|e| ProverError::StarkProof(format!("Winterfell proof generation failed: {}", e)))?;
         
-        // Create AIR instance (for reference, not used in proof generation yet)
-        let _air = BlockTransitionAir::new(trace_info, public_inputs.clone(), self.options.clone());
-        
-        // Generate proof using Winterfell
-        // Note: For MVP, we return an error indicating that full Prover implementation
-        // is needed. The AIR structure is complete, but implementing the Prover trait
-        // requires additional work to properly handle trace building and proof generation.
-        // TODO: Implement proper proof generation by creating a struct that implements
-        // the Prover trait with proper trace building logic
-        Err(ProverError::StarkProof(
-            "Winterfell proof generation requires implementing Prover trait. AIR structure is complete, but full Prover implementation is pending.".to_string()
-        ))
+        Ok(proof)
     }
     
     fn build_trace(
         &self,
-        _public_inputs: &BlockTransitionInputs,
-        _private_inputs: &BlockTransitionPrivateInputs,
+        public_inputs: &BlockTransitionInputs,
+        private_inputs: &BlockTransitionPrivateInputs,
     ) -> Result<TraceTable<BaseElement>, ProverError> {
-        // Build execution trace for state transition
-        // This is a placeholder - in production, this would:
-        // 1. Deserialize transactions
-        // 2. Apply transactions step by step
-        // 3. Compute state roots at each step
-        // 4. Build trace table with all intermediate values
+        // Deserialize block to get transactions
+        let block: Block = bincode::deserialize(&private_inputs.transactions)
+            .map_err(|e| ProverError::Serialization(format!("Failed to deserialize block: {}", e)))?;
         
-        // For now, return a minimal trace
-        // TODO: Implement actual trace building
-        let trace_width = 4; // Number of columns in trace
-        let trace_length = 64; // Number of rows in trace
+        // Initialize state (we'll start from prev_state_root)
+        // For MVP, we'll create an empty state and apply transactions
+        // In production, we'd need to reconstruct state from prev_state_root
+        let mut state = State::new();
         
-        let trace = TraceTable::new(trace_width, trace_length);
+        // Trace structure:
+        // Column 0: prev_state_root (first 32 bits as u32)
+        // Column 1: prev_state_root (next 32 bits as u32)
+        // Column 2: tx_hash (first 32 bits as u32)
+        // Column 3: tx_hash (next 32 bits as u32)
+        // Column 4: new_state_root (first 32 bits as u32)
+        // Column 5: new_state_root (next 32 bits as u32)
+        // Column 6: tx_index (u32)
+        // Column 7: timestamp (u32)
+        const TRACE_WIDTH: usize = 8;
+        
+        // Each transaction gets one row in the trace
+        // Plus one row for initial state
+        let num_txs = block.transactions.len();
+        let trace_length = (num_txs + 1).next_power_of_two().max(8); // Minimum 8 rows, power of 2
+        
+        // Create trace table
+        let mut trace = TraceTable::new(TRACE_WIDTH, trace_length);
+        
+        // Compute initial state root (from prev_state_root in public inputs)
+        let mut current_state_root = public_inputs.prev_state_root;
+        
+        // First row: initial state
+        self.write_state_root_to_trace(&mut trace, 0, 0, &current_state_root)?;
+        // For initial row, prev_state_root = new_state_root
+        self.write_state_root_to_trace(&mut trace, 0, 4, &current_state_root)?;
+        self.write_u32_to_trace(&mut trace, 0, 6, 0)?; // tx_index = 0 (initial)
+        self.write_u32_to_trace(&mut trace, 0, 7, block.timestamp as u32)?;
+        
+        // Apply each transaction and add a row to the trace
+        for (tx_index, tx) in block.transactions.iter().enumerate() {
+            let row = tx_index + 1;
+            
+            // Compute transaction hash
+            let tx_bytes = bincode::serialize(tx)
+                .map_err(|e| ProverError::Serialization(format!("Failed to serialize tx: {}", e)))?;
+            let tx_hash = Sha256::digest(&tx_bytes);
+            let tx_hash_bytes: [u8; 32] = tx_hash.into();
+            
+            // Write prev_state_root to trace (columns 0-1)
+            self.write_state_root_to_trace(&mut trace, row, 0, &current_state_root)?;
+            
+            // Write tx_hash to trace (columns 2-3)
+            self.write_hash_to_trace(&mut trace, row, 2, &tx_hash_bytes)?;
+            
+            // Write tx_index to trace (column 6)
+            self.write_u32_to_trace(&mut trace, row, 6, (tx_index + 1) as u32)?;
+            
+            // Write timestamp to trace (column 7)
+            self.write_u32_to_trace(&mut trace, row, 7, block.timestamp as u32)?;
+            
+            // Apply transaction to state
+            apply_tx(&mut state, tx, block.timestamp)
+                .map_err(|e| ProverError::StarkProof(format!("Failed to apply tx: {:?}", e)))?;
+            
+            // Compute new state root after applying transaction
+            current_state_root = self.compute_state_root(&state)?;
+            
+            // Write new_state_root to trace (columns 4-5)
+            self.write_state_root_to_trace(&mut trace, row, 4, &current_state_root)?;
+        }
+        
+        // Verify final state root matches public inputs
+        if current_state_root != public_inputs.new_state_root {
+            return Err(ProverError::StarkProof(
+                format!("State root mismatch: computed {:?}, expected {:?}", 
+                    current_state_root, public_inputs.new_state_root)
+            ));
+        }
         
         Ok(trace)
+    }
+    
+    /// Write a state root (32 bytes) to trace columns starting at col_start
+    fn write_state_root_to_trace(
+        &self,
+        trace: &mut TraceTable<BaseElement>,
+        row: usize,
+        col_start: usize,
+        state_root: &[u8; 32],
+    ) -> Result<(), ProverError> {
+        // Write first 32 bits
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&state_root[0..4]);
+        let value = u32::from_le_bytes(bytes);
+        trace.set(col_start, row, BaseElement::from(value));
+        
+        // Write next 32 bits
+        bytes.copy_from_slice(&state_root[4..8]);
+        let value = u32::from_le_bytes(bytes);
+        trace.set(col_start + 1, row, BaseElement::from(value));
+        
+        Ok(())
+    }
+    
+    /// Write a hash (32 bytes) to trace columns starting at col_start
+    fn write_hash_to_trace(
+        &self,
+        trace: &mut TraceTable<BaseElement>,
+        row: usize,
+        col_start: usize,
+        hash: &[u8; 32],
+    ) -> Result<(), ProverError> {
+        // Write first 32 bits
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&hash[0..4]);
+        let value = u32::from_le_bytes(bytes);
+        trace.set(col_start, row, BaseElement::from(value));
+        
+        // Write next 32 bits
+        bytes.copy_from_slice(&hash[4..8]);
+        let value = u32::from_le_bytes(bytes);
+        trace.set(col_start + 1, row, BaseElement::from(value));
+        
+        Ok(())
+    }
+    
+    /// Write a u32 value to a specific column
+    fn write_u32_to_trace(
+        &self,
+        trace: &mut TraceTable<BaseElement>,
+        row: usize,
+        col: usize,
+        value: u32,
+    ) -> Result<(), ProverError> {
+        trace.set(col, row, BaseElement::from(value));
+        Ok(())
+    }
+    
+    /// Compute state root from state
+    /// This is a simplified version - in production, this would compute a proper Merkle root
+    fn compute_state_root(&self, state: &State) -> Result<[u8; 32], ProverError> {
+        // Serialize state to bytes
+        let state_bytes = bincode::serialize(state)
+            .map_err(|e| ProverError::Serialization(format!("Failed to serialize state: {}", e)))?;
+        
+        // For MVP, we'll use a simple hash of the serialized state
+        // In production, this should compute a proper Merkle root of all accounts and deals
+        let hash = Sha256::digest(&state_bytes);
+        let mut result = [0u8; 32];
+        result.copy_from_slice(&hash);
+        
+        Ok(result)
     }
 }
 
