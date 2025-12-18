@@ -11,8 +11,6 @@ use crate::snark::SnarkProver;
 pub struct ProverConfig {
     /// Whether to use placeholder implementations (for testing)
     pub use_placeholders: bool,
-    /// Path to SP1 configuration (if using SP1)
-    pub sp1_config_path: Option<String>,
     /// Path to Plonky2 configuration (if using Plonky2)
     pub plonky2_config_path: Option<String>,
 }
@@ -21,7 +19,6 @@ impl Default for ProverConfig {
     fn default() -> Self {
         Self {
             use_placeholders: true,
-            sp1_config_path: None,
             plonky2_config_path: None,
         }
     }
@@ -41,11 +38,11 @@ impl Prover {
         let stark_prover: Box<dyn StarkProver> = if config.use_placeholders {
             Box::new(crate::stark::PlaceholderStarkProver)
         } else {
-            #[cfg(feature = "sp1")]
+            #[cfg(feature = "winterfell")]
             {
-                Box::new(crate::stark::Sp1StarkProver::new())
+                Box::new(crate::stark::WinterfellStarkProver::new())
             }
-            #[cfg(not(feature = "sp1"))]
+            #[cfg(not(feature = "winterfell"))]
             {
                 Box::new(crate::stark::PlaceholderStarkProver)
             }

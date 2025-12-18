@@ -2,7 +2,7 @@ use crate::error::ProverError;
 
 /// STARK proof generator trait
 /// 
-/// This trait allows for different STARK implementations (SP1, Winterfell, etc.)
+/// This trait allows for different STARK implementations (Winterfell, etc.)
 #[async_trait::async_trait]
 pub trait StarkProver: Send + Sync {
     /// Generate a STARK proof for a block state transition
@@ -25,7 +25,7 @@ pub trait StarkProver: Send + Sync {
 /// Placeholder STARK prover implementation
 /// 
 /// This is a placeholder that will be replaced with actual STARK implementation
-/// (SP1, Winterfell, or another backend)
+/// (Winterfell or another backend)
 pub struct PlaceholderStarkProver;
 
 #[async_trait::async_trait]
@@ -52,25 +52,28 @@ impl StarkProver for PlaceholderStarkProver {
     }
 }
 
-/// SP1-based STARK prover
+/// Winterfell-based STARK prover
 /// 
-/// This uses SP1 zkVM for generating STARK proofs
-#[cfg(feature = "sp1")]
-pub struct Sp1StarkProver {
-    // SP1 configuration
-    // TODO: Add SP1-specific configuration when needed
+/// This uses Winterfell (from Polygon Zero) for generating STARK proofs
+/// Winterfell is a reliable, well-maintained STARK library available on crates.io
+#[cfg(feature = "winterfell")]
+pub struct WinterfellStarkProver {
+    // Winterfell configuration will be added when implementing AIR
+    // For now, we keep the struct simple
 }
 
-#[cfg(feature = "sp1")]
-impl Sp1StarkProver {
+#[cfg(feature = "winterfell")]
+impl WinterfellStarkProver {
     pub fn new() -> Self {
+        // Proof options will be configured when implementing AIR
+        // For now, we just create the prover instance
         Self {}
     }
 }
 
-#[cfg(feature = "sp1")]
+#[cfg(feature = "winterfell")]
 #[async_trait::async_trait]
-impl StarkProver for Sp1StarkProver {
+impl StarkProver for WinterfellStarkProver {
     async fn prove_block_transition(
         &self,
         _prev_state_root: &[u8; 32],
@@ -78,26 +81,27 @@ impl StarkProver for Sp1StarkProver {
         _withdrawals_root: &[u8; 32],
         _block_data: &[u8],
     ) -> Result<Vec<u8>, ProverError> {
-        // SP1 proof generation
-        // SP1 requires a program to be compiled first, then we can generate proofs
-        // For now, we'll prepare the structure for SP1 integration
-        
-        // TODO: Implement actual SP1 proof generation
-        // Steps:
-        // 1. Create SP1 program that verifies state transition
-        // 2. Compile the program
-        // 3. Generate proof using SP1 prover
-        // 4. Serialize and return proof
-        
-        // Placeholder: In production, this would use SP1 SDK to generate proofs
+        // Generate STARK proof using Winterfell
+        // 
+        // To use Winterfell properly, you need to:
+        // 1. Define AIR (Algebraic Intermediate Representation) for state transition
+        // 2. Implement Prover trait for your AIR
+        // 3. Generate proof using Winterfell's prover
+        //
         // Example structure:
-        // let program = sp1::Program::new("path/to/program");
-        // let proof = program.prove(public_inputs, private_inputs).await?;
-        // Ok(proof.to_bytes())
+        // ```
+        // use winterfell::{Prover, Proof};
+        // 
+        // let prover = BlockTransitionProver::new(self.options.clone());
+        // let public_inputs = BlockTransitionInputs { ... };
+        // let proof = prover.prove(public_inputs, private_inputs)?;
+        // let proof_bytes = bincode::serialize(&proof)?;
+        // Ok(proof_bytes)
+        // ```
         
-        // For now, return error indicating SP1 needs proper setup
+        // For now, return error indicating AIR needs to be implemented
         Err(ProverError::StarkProof(
-            "SP1 requires program compilation and setup. See SP1 documentation for details.".to_string()
+            "Winterfell STARK proof generation requires AIR implementation. See Winterfell documentation for details.".to_string()
         ))
     }
 
@@ -106,16 +110,22 @@ impl StarkProver for Sp1StarkProver {
         _proof: &[u8],
         _public_inputs: &[u8],
     ) -> Result<bool, ProverError> {
-        // SP1 proof verification
-        // TODO: Implement actual SP1 proof verification
-        // let program = sp1::Program::new("path/to/program");
-        // let verified = program.verify(proof, public_inputs).await?;
-        // Ok(verified)
+        // Verify STARK proof using Winterfell
+        // 
+        // Example structure:
+        // ```
+        // use winterfell::{Verifier, Proof};
+        // 
+        // let proof: Proof = bincode::deserialize(proof)?;
+        // let public_inputs: BlockTransitionInputs = bincode::deserialize(public_inputs)?;
+        // let verifier = BlockTransitionVerifier::new(self.options.clone());
+        // verifier.verify(proof, public_inputs)?;
+        // Ok(true)
+        // ```
         
         // For now, return error
         Err(ProverError::StarkProof(
-            "SP1 verification requires program setup. See SP1 documentation for details.".to_string()
+            "Winterfell STARK proof verification requires AIR implementation. See Winterfell documentation for details.".to_string()
         ))
     }
 }
-

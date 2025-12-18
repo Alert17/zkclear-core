@@ -17,12 +17,12 @@ thiserror = "1.0"
 async-trait = "0.1"
 
 # ZK Proof libraries
-# SP1 for STARK proofs
-sp1-lib = { version = "5.2", optional = true }
+# Winterfell for STARK proofs (reliable, well-maintained, available on crates.io)
+winterfell = { version = "0.13", optional = true, features = ["std", "concurrent"] }
 
 [features]
 default = []
-sp1 = ["dep:sp1-lib"]
+winterfell = ["dep:winterfell"]
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
