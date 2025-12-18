@@ -199,6 +199,12 @@ impl Sequencer {
             }
         }
 
+        // TODO: Calculate state_root and withdrawals_root from state and withdrawals
+        // For now, use placeholder zeros
+        let state_root = [0u8; 32];
+        let withdrawals_root = [0u8; 32];
+        let block_proof = Vec::new(); // TODO: Generate ZK proof for block
+
         let block = Block {
             id: block_id,
             transactions,
@@ -206,6 +212,9 @@ impl Sequencer {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+            state_root,
+            withdrawals_root,
+            block_proof,
         };
 
         Ok(block)

@@ -162,6 +162,9 @@ mod tests {
             id,
             transactions,
             timestamp: 1000,
+            state_root: [0u8; 32],
+            withdrawals_root: [0u8; 32],
+            block_proof: Vec::new(),
         }
     }
 

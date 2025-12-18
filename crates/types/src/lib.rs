@@ -194,9 +194,49 @@ pub struct Withdraw {
     pub chain_id: ChainId,
 }
 
+/// ZK proof for withdrawal (merkle inclusion proof + nullifier)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WithdrawalProof {
+    /// Merkle proof for inclusion in withdrawals_root
+    #[serde(with = "serde_bytes")]
+    pub merkle_proof: Vec<u8>,
+    /// Nullifier to prevent double-spending
+    #[serde(with = "serde_bytes")]
+    pub nullifier: [u8; 32],
+    /// ZK proof (STARK wrapped in SNARK) proving withdrawal validity
+    #[serde(with = "serde_bytes")]
+    pub zk_proof: Vec<u8>,
+}
+
+/// ZK proof for block state transition
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BlockProof {
+    /// Previous state root
+    #[serde(with = "serde_bytes")]
+    pub prev_state_root: [u8; 32],
+    /// New state root after block execution
+    #[serde(with = "serde_bytes")]
+    pub new_state_root: [u8; 32],
+    /// Withdrawals root in this block
+    #[serde(with = "serde_bytes")]
+    pub withdrawals_root: [u8; 32],
+    /// ZK proof (STARK wrapped in SNARK) proving state transition correctness
+    #[serde(with = "serde_bytes")]
+    pub zk_proof: Vec<u8>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Block {
     pub id: BlockId,
     pub transactions: Vec<Tx>,
     pub timestamp: u64,
+    /// Merkle root of state after this block
+    #[serde(with = "serde_bytes")]
+    pub state_root: [u8; 32],
+    /// Merkle root of withdrawals in this block
+    #[serde(with = "serde_bytes")]
+    pub withdrawals_root: [u8; 32],
+    /// ZK proof for block state transition (STARK wrapped in SNARK)
+    #[serde(with = "serde_bytes")]
+    pub block_proof: Vec<u8>,
 }

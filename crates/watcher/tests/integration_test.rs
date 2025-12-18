@@ -112,7 +112,10 @@ async fn test_watcher_detects_single_deposit() {
 
     // Wait for watcher to process with retries
     let final_queue = wait_for_deposits_processed(&sequencer, initial_queue, 1, 10).await;
-    println!("Queue status: Initial: {}, Final: {}", initial_queue, final_queue);
+    println!(
+        "Queue status: Initial: {}, Final: {}",
+        initial_queue, final_queue
+    );
 
     // Verify queue increased (deposit was processed)
     assert!(
@@ -162,7 +165,9 @@ async fn test_watcher_handles_multiple_deposits() {
         .await
         .expect("Should make first deposit");
     println!("First deposit tx hash: {}", tx1);
-    wait_for_transaction(&tx1).await.expect("Tx1 should be mined");
+    wait_for_transaction(&tx1)
+        .await
+        .expect("Tx1 should be mined");
     println!("First deposit mined");
 
     // Wait a bit for block to be finalized
@@ -173,12 +178,17 @@ async fn test_watcher_handles_multiple_deposits() {
         .await
         .expect("Should make second deposit");
     println!("Second deposit tx hash: {}", tx2);
-    wait_for_transaction(&tx2).await.expect("Tx2 should be mined");
+    wait_for_transaction(&tx2)
+        .await
+        .expect("Tx2 should be mined");
     println!("Second deposit mined");
 
     // Wait for watcher to process with retries
     let final_queue = wait_for_deposits_processed(&sequencer, initial_queue, 2, 15).await;
-    println!("Queue status: Initial: {}, Final: {}", initial_queue, final_queue);
+    println!(
+        "Queue status: Initial: {}, Final: {}",
+        initial_queue, final_queue
+    );
 
     // Verify multiple deposits were processed
     assert!(
