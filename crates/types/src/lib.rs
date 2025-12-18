@@ -1,10 +1,58 @@
+mod constants;
+
+pub use constants::*;
+
 pub type AccountId = u64;
 pub type DealId = u64;
 pub type AssetId = u16;
 pub type BlockId = u64;
+pub type ChainId = u64;
+pub type BridgeRequestId = u64;
 
-pub type Address = [u8; 20];
-pub type Signature = [u8; 65];
+pub type Address = [u8; constants::address::ADDRESS_SIZE];
+pub type Signature = [u8; constants::signature::SIGNATURE_SIZE];
+
+pub const ZERO_ADDRESS: Address = constants::address::ZERO_ADDRESS_BYTES;
+
+#[repr(u64)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum SupportedChain {
+    Ethereum = constants::chain_ids::ETHEREUM,
+    Polygon = constants::chain_ids::POLYGON,
+    Mantle = constants::chain_ids::MANTLE,
+    Arbitrum = constants::chain_ids::ARBITRUM,
+    Optimism = constants::chain_ids::OPTIMISM,
+    Base = constants::chain_ids::BASE,
+}
+
+impl SupportedChain {
+    pub fn as_chain_id(&self) -> ChainId {
+        match self {
+            SupportedChain::Ethereum => constants::chain_ids::ETHEREUM,
+            SupportedChain::Polygon => constants::chain_ids::POLYGON,
+            SupportedChain::Mantle => constants::chain_ids::MANTLE,
+            SupportedChain::Arbitrum => constants::chain_ids::ARBITRUM,
+            SupportedChain::Optimism => constants::chain_ids::OPTIMISM,
+            SupportedChain::Base => constants::chain_ids::BASE,
+        }
+    }
+
+    pub fn from_chain_id(chain_id: ChainId) -> Option<Self> {
+        match chain_id {
+            constants::chain_ids::ETHEREUM => Some(SupportedChain::Ethereum),
+            constants::chain_ids::POLYGON => Some(SupportedChain::Polygon),
+            constants::chain_ids::MANTLE => Some(SupportedChain::Mantle),
+            constants::chain_ids::ARBITRUM => Some(SupportedChain::Arbitrum),
+            constants::chain_ids::OPTIMISM => Some(SupportedChain::Optimism),
+            constants::chain_ids::BASE => Some(SupportedChain::Base),
+            _ => None,
+        }
+    }
+
+    pub fn is_supported(chain_id: ChainId) -> bool {
+        Self::from_chain_id(chain_id).is_some()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DealVisibility {
@@ -34,6 +82,7 @@ pub struct Account {
 pub struct Balance {
     pub asset_id: AssetId,
     pub amount: u128,
+    pub chain_id: ChainId,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -41,6 +90,10 @@ pub struct Asset {
     pub id: AssetId,
     pub symbol: String,
     pub decimals: u8,
+    pub chain_id: ChainId,
+    pub contract_address: Option<Address>,
+    pub is_wrapped: bool,
+    pub original_chain_id: Option<ChainId>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -51,6 +104,8 @@ pub struct Deal {
     pub visibility: DealVisibility,
     pub asset_base: AssetId,
     pub asset_quote: AssetId,
+    pub chain_id_base: ChainId,
+    pub chain_id_quote: ChainId,
     pub amount_base: u128,
     pub amount_remaining: u128,
     pub price_quote_per_base: u128,
@@ -58,6 +113,7 @@ pub struct Deal {
     pub created_at: u64,
     pub expires_at: Option<u64>,
     pub external_ref: Option<String>,
+    pub is_cross_chain: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -67,6 +123,9 @@ pub enum TxKind {
     AcceptDeal,
     CancelDeal,
     Withdraw,
+    CrossChainDeposit,
+    CrossChainWithdraw,
+    BridgeRequest,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -88,16 +147,20 @@ pub enum TxPayload {
     AcceptDeal(AcceptDeal),
     CancelDeal(CancelDeal),
     Withdraw(Withdraw),
+    CrossChainDeposit(CrossChainDeposit),
+    CrossChainWithdraw(CrossChainWithdraw),
+    BridgeRequest(BridgeRequest),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Deposit {
     #[serde(with = "serde_bytes")]
-    pub tx_hash: [u8; 32],
+    pub tx_hash: [u8; constants::transaction::TX_HASH_SIZE],
     #[serde(with = "serde_bytes")]
     pub account: Address,
     pub asset_id: AssetId,
     pub amount: u128,
+    pub chain_id: ChainId,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -107,6 +170,8 @@ pub struct CreateDeal {
     pub taker: Option<Address>,
     pub asset_base: AssetId,
     pub asset_quote: AssetId,
+    pub chain_id_base: ChainId,
+    pub chain_id_quote: ChainId,
     pub amount_base: u128,
     pub price_quote_per_base: u128,
     pub expires_at: Option<u64>,
@@ -129,6 +194,57 @@ pub struct Withdraw {
     pub asset_id: AssetId,
     pub amount: u128,
     pub to: Address,
+    pub chain_id: ChainId,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CrossChainDeposit {
+    #[serde(with = "serde_bytes")]
+    pub tx_hash: [u8; constants::transaction::TX_HASH_SIZE],
+    #[serde(with = "serde_bytes")]
+    pub account: Address,
+    pub asset_id: AssetId,
+    pub amount: u128,
+    pub source_chain_id: ChainId,
+    pub destination_chain_id: ChainId,
+    pub bridge_request_id: Option<BridgeRequestId>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CrossChainWithdraw {
+    pub asset_id: AssetId,
+    pub amount: u128,
+    pub to: Address,
+    pub source_chain_id: ChainId,
+    pub destination_chain_id: ChainId,
+    pub bridge_request_id: BridgeRequestId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum BridgeStatus {
+    Pending,
+    Locked,
+    Minted,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BridgeRequest {
+    pub id: BridgeRequestId,
+    pub user: Address,
+    pub asset_id: AssetId,
+    pub amount: u128,
+    pub source_chain_id: ChainId,
+    pub destination_chain_id: ChainId,
+    pub status: BridgeStatus,
+    pub source_tx_hash: Option<[u8; constants::transaction::TX_HASH_SIZE]>,
+    pub destination_tx_hash: Option<[u8; constants::transaction::TX_HASH_SIZE]>,
+    pub created_at: u64,
+    pub completed_at: Option<u64>,
+    #[serde(with = "serde_bytes")]
+    pub proof: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
