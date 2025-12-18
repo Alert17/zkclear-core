@@ -58,7 +58,7 @@ impl StarkProver for PlaceholderStarkProver {
 /// Winterfell is a reliable, well-maintained STARK library available on crates.io
 #[cfg(feature = "winterfell")]
 pub struct WinterfellStarkProver {
-    prover: crate::air::BlockTransitionProver,
+    prover: std::sync::Mutex<crate::air::BlockTransitionProver>,
     verifier: crate::air::BlockTransitionVerifier,
 }
 
@@ -81,7 +81,7 @@ impl WinterfellStarkProver {
         );
         
         Self {
-            prover: crate::air::BlockTransitionProver::new(options.clone()),
+            prover: std::sync::Mutex::new(crate::air::BlockTransitionProver::new(options.clone())),
             verifier: crate::air::BlockTransitionVerifier::new(options),
         }
     }
@@ -119,7 +119,11 @@ impl StarkProver for WinterfellStarkProver {
         };
         
         // Generate proof using Winterfell
-        let proof = self.prover.prove(public_inputs, private_inputs)?;
+        // Use Mutex for interior mutability since prove requires &mut self
+        let mut prover = self.prover.lock().map_err(|e| ProverError::StarkProof(
+            format!("Failed to acquire prover lock: {}", e)
+        ))?;
+        let proof = prover.prove(public_inputs, private_inputs)?;
         
         // Serialize proof to bytes using Winterfell's built-in serialization
         let proof_bytes = proof.to_bytes();

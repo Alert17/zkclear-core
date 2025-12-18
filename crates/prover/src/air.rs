@@ -10,7 +10,14 @@
 use winterfell::{
     math::{FieldElement, ToElements},
     Air, AirContext, Assertion, EvaluationFrame, ProofOptions, TraceTable, Proof, TraceInfo,
-    Trace,
+    Trace, Prover,
+    crypto::{
+        hashers::Blake3_256,
+        DefaultRandomCoin,
+        MerkleTree,
+    },
+    matrix::ColMatrix,
+    StarkDomain, PartitionOptions,
 };
 #[cfg(feature = "winterfell")]
 use winterfell::math::fields::f64::BaseElement;
@@ -161,15 +168,122 @@ impl Air for BlockTransitionAir {
 }
 
 /// Prover for BlockTransitionAIR
+/// 
+/// This struct implements Winterfell's Prover trait for generating STARK proofs
+/// for block state transitions.
 #[cfg(feature = "winterfell")]
+#[derive(Clone)]
 pub struct BlockTransitionProver {
     options: ProofOptions,
+    // Store public inputs separately since we need them for get_pub_inputs
+    // This is a workaround until we properly encode public inputs in the trace
+    pub_inputs: Option<BlockTransitionInputs>,
+}
+
+/// Implementation of Winterfell's Prover trait for BlockTransitionAIR
+#[cfg(feature = "winterfell")]
+impl Prover for BlockTransitionProver {
+    type BaseField = BaseElement;
+    type Air = BlockTransitionAir;
+    type Trace = TraceTable<BaseElement>;
+    type HashFn = Blake3_256<BaseElement>;
+    type RandomCoin = DefaultRandomCoin<Self::HashFn>;
+    type VC = MerkleTree<Self::HashFn>;
+    
+    // For TraceLde, ConstraintEvaluator, and ConstraintCommitment, we use default implementations
+    // These are trait bounds, not concrete types - Winterfell provides default implementations
+    type TraceLde<E> = winterfell::DefaultTraceLde<E, Self::HashFn, Self::VC>
+    where
+        E: FieldElement<BaseField = Self::BaseField>;
+    
+    type ConstraintEvaluator<'a, E> = winterfell::DefaultConstraintEvaluator<'a, Self::Air, E>
+    where
+        E: FieldElement<BaseField = Self::BaseField>;
+    
+    type ConstraintCommitment<E> = winterfell::DefaultConstraintCommitment<E, Self::HashFn, Self::VC>
+    where
+        E: FieldElement<BaseField = Self::BaseField>;
+
+    fn get_pub_inputs(&self, _trace: &Self::Trace) -> <<Self as Prover>::Air as Air>::PublicInputs {
+        // Extract public inputs from stored value
+        // TODO: In production, encode public inputs in trace or use a better approach
+        self.pub_inputs.clone().unwrap_or_else(|| BlockTransitionInputs {
+            prev_state_root: [0u8; 32],
+            new_state_root: [0u8; 32],
+            withdrawals_root: [0u8; 32],
+            block_id: 0,
+            timestamp: 0,
+        })
+    }
+
+    fn options(&self) -> &ProofOptions {
+        &self.options
+    }
+
+    fn new_trace_lde<E>(
+        &self,
+        trace_info: &TraceInfo,
+        main_trace: &ColMatrix<Self::BaseField>,
+        domain: &StarkDomain<Self::BaseField>,
+        partition_options: PartitionOptions,
+    ) -> (Self::TraceLde<E>, winterfell::TracePolyTable<E>)
+    where
+        E: FieldElement<BaseField = Self::BaseField>,
+    {
+        // Use default implementation from Winterfell
+        winterfell::DefaultTraceLde::<E, Self::HashFn, Self::VC>::new(
+            trace_info,
+            main_trace,
+            domain,
+            partition_options,
+        )
+    }
+
+    fn new_evaluator<'a, E>(
+        &self,
+        air: &'a Self::Air,
+        aux_rand_elements: Option<winterfell::AuxRandElements<E>>,
+        composition_coefficients: winterfell::ConstraintCompositionCoefficients<E>,
+    ) -> Self::ConstraintEvaluator<'a, E>
+    where
+        E: FieldElement<BaseField = Self::BaseField>,
+    {
+        // Use default implementation from Winterfell
+        winterfell::DefaultConstraintEvaluator::new(air, aux_rand_elements, composition_coefficients)
+    }
+
+    fn build_constraint_commitment<E>(
+        &self,
+        composition_poly_trace: winterfell::CompositionPolyTrace<E>,
+        num_constraint_composition_columns: usize,
+        domain: &StarkDomain<Self::BaseField>,
+        partition_options: PartitionOptions,
+    ) -> (Self::ConstraintCommitment<E>, winterfell::CompositionPoly<E>)
+    where
+        E: FieldElement<BaseField = Self::BaseField>,
+    {
+        // Use default implementation from Winterfell
+        winterfell::DefaultConstraintCommitment::<E, Self::HashFn, Self::VC>::new(
+            composition_poly_trace,
+            num_constraint_composition_columns,
+            domain,
+            partition_options,
+        )
+    }
 }
 
 #[cfg(feature = "winterfell")]
 impl BlockTransitionProver {
     pub fn new(options: ProofOptions) -> Self {
-        Self { options }
+        Self {
+            options,
+            pub_inputs: None,
+        }
+    }
+    
+    /// Set public inputs for the next proof generation
+    pub fn set_public_inputs(&mut self, pub_inputs: BlockTransitionInputs) {
+        self.pub_inputs = Some(pub_inputs);
     }
     
     pub fn prove(
