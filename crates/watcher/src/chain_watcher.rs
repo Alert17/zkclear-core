@@ -8,9 +8,9 @@ use tracing::{debug, error, info, warn};
 use zkclear_sequencer::Sequencer;
 
 pub struct ChainWatcher {
-    config: ChainConfig,
+    pub(crate) config: ChainConfig,
     processor: EventProcessor,
-    rpc_client: RpcClient,
+    pub(crate) rpc_client: RpcClient,
     processed_txs: Arc<tokio::sync::Mutex<HashSet<[u8; 32]>>>,
     last_processed_block: Arc<tokio::sync::Mutex<u64>>,
     last_confirmed_block_hash: Arc<tokio::sync::Mutex<Option<[u8; 32]>>>,
@@ -163,7 +163,7 @@ impl ChainWatcher {
         for log in logs {
             let tx_hash = self.parse_tx_hash(&log)?;
 
-            let mut processed = self.processed_txs.lock().await;
+            let processed = self.processed_txs.lock().await;
             if processed.contains(&tx_hash) {
                 debug!(
                     chain_id = self.config.chain_id,

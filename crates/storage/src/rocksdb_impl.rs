@@ -189,7 +189,7 @@ impl Storage for RocksDBStorage {
 
         let prefix = Self::encode_block_id(block_id);
         let mut txs = Vec::new();
-        let mut iter = self.db.iterator_cf(
+        let iter = self.db.iterator_cf(
             cf,
             rocksdb::IteratorMode::From(&prefix, rocksdb::Direction::Forward),
         );

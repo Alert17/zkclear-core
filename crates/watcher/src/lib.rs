@@ -4,7 +4,7 @@ mod event_processor;
 mod rpc_client;
 
 pub use chain_watcher::ChainWatcher;
-pub use config::WatcherConfig;
+pub use config::{ChainConfig, WatcherConfig};
 pub use event_processor::EventProcessor;
 pub use rpc_client::RpcClient;
 
