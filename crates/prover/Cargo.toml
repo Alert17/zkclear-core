@@ -1,0 +1,29 @@
+[package]
+name = "zkclear-prover"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zkclear-types = { path = "../types" }
+zkclear-state = { path = "../state" }
+zkclear-stf = { path = "../stf" }
+serde = { version = "1.0", features = ["derive"] }
+serde_bytes = "0.11"
+bincode = "1.3"
+sha2 = "0.10"
+sha3 = "0.10"
+anyhow = "1.0"
+thiserror = "1.0"
+async-trait = "0.1"
+
+# ZK Proof libraries
+# SP1 for STARK proofs
+sp1-lib = { version = "5.2", optional = true }
+
+[features]
+default = []
+sp1 = ["dep:sp1-lib"]
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full"] }
+
