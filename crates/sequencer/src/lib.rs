@@ -63,6 +63,12 @@ impl Sequencer {
         Ok(sequencer)
     }
 
+    pub fn with_storage_arc(storage: Arc<dyn Storage>) -> Result<Self, SequencerError> {
+        let mut sequencer = Self::with_config(DEFAULT_MAX_QUEUE_SIZE, DEFAULT_MAX_TXS_PER_BLOCK);
+        sequencer.load_state_from_storage(storage)?;
+        Ok(sequencer)
+    }
+
     pub fn set_storage<S: Storage + 'static>(&mut self, storage: S) -> Result<(), SequencerError> {
         self.load_state_from_storage(Arc::new(storage))?;
         Ok(())

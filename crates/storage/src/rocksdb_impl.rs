@@ -1,22 +1,31 @@
 #[cfg(feature = "rocksdb")]
 use std::path::Path;
+#[cfg(feature = "rocksdb")]
 use std::sync::Arc;
+#[cfg(feature = "rocksdb")]
 use rocksdb::{DB, Options, ColumnFamilyDescriptor};
 use zkclear_state::State;
 use zkclear_types::{Block, BlockId, Deal, DealId, Tx};
 use crate::storage_trait::{Storage, StorageError, TxId};
 use bincode;
 
+#[cfg(feature = "rocksdb")]
 const CF_BLOCKS: &str = "blocks";
+#[cfg(feature = "rocksdb")]
 const CF_TRANSACTIONS: &str = "transactions";
+#[cfg(feature = "rocksdb")]
 const CF_DEALS: &str = "deals";
+#[cfg(feature = "rocksdb")]
 const CF_STATE_SNAPSHOTS: &str = "state_snapshots";
+#[cfg(feature = "rocksdb")]
 const CF_METADATA: &str = "metadata";
 
+#[cfg(feature = "rocksdb")]
 pub struct RocksDBStorage {
     db: Arc<DB>,
 }
 
+#[cfg(feature = "rocksdb")]
 impl RocksDBStorage {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
         let mut opts = Options::default();
@@ -94,7 +103,7 @@ impl Storage for RocksDBStorage {
         match self.db.get_cf(cf, key)
             .map_err(|e| StorageError::DatabaseError(e.to_string()))? {
             Some(bytes) => {
-                let block: Block = bincode::deserialize(&bytes)
+                let block: Block = bincode::deserialize(&bytes[..][..])
                     .map_err(|_| StorageError::DeserializationFailed)?;
                 Ok(Some(block))
             }
@@ -135,7 +144,7 @@ impl Storage for RocksDBStorage {
         match self.db.get_cf(cf, key)
             .map_err(|e| StorageError::DatabaseError(e.to_string()))? {
             Some(bytes) => {
-                let tx: Tx = bincode::deserialize(&bytes)
+                let tx: Tx = bincode::deserialize(&bytes[..])
                     .map_err(|_| StorageError::DeserializationFailed)?;
                 Ok(Some(tx))
             }
@@ -156,7 +165,7 @@ impl Storage for RocksDBStorage {
             if key.len() < 8 || &key[0..8] != prefix {
                 break;
             }
-            let tx: Tx = bincode::deserialize(&value)
+            let tx: Tx = bincode::deserialize(&value[..])
                 .map_err(|_| StorageError::DeserializationFailed)?;
             txs.push(tx);
         }
@@ -186,7 +195,7 @@ impl Storage for RocksDBStorage {
         match self.db.get_cf(cf, key)
             .map_err(|e| StorageError::DatabaseError(e.to_string()))? {
             Some(bytes) => {
-                let deal: Deal = bincode::deserialize(&bytes)
+                let deal: Deal = bincode::deserialize(&bytes[..])
                     .map_err(|_| StorageError::DeserializationFailed)?;
                 Ok(Some(deal))
             }
@@ -203,7 +212,7 @@ impl Storage for RocksDBStorage {
         
         for item in iter {
             let (_, value) = item.map_err(|e| StorageError::DatabaseError(e.to_string()))?;
-            let deal: Deal = bincode::deserialize(&value)
+            let deal: Deal = bincode::deserialize(&value[..])
                 .map_err(|_| StorageError::DeserializationFailed)?;
             deals.push(deal);
         }
@@ -248,7 +257,7 @@ impl Storage for RocksDBStorage {
         match self.db.get_cf(cf, key)
             .map_err(|e| StorageError::DatabaseError(e.to_string()))? {
             Some(bytes) => {
-                let state: State = bincode::deserialize(&bytes)
+                let state: State = bincode::deserialize(&bytes[..])
                     .map_err(|_| StorageError::DeserializationFailed)?;
                 Ok(Some((state, snapshot_block_id)))
             }

@@ -5,16 +5,12 @@ edition = "2021"
 
 [features]
 default = []
-rocksdb = ["rocksdb-rs"]
+rocksdb = ["dep:rocksdb"]
 
 [dependencies]
 zkclear-types = { path = "../types" }
 zkclear-state = { path = "../state" }
 serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"
-
-[dependencies.rocksdb-rs]
-package = "rocksdb"
-version = "0.21"
-optional = true
+rocksdb = { version = "0.21", optional = true }
 

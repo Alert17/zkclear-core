@@ -1,9 +1,13 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::time::{interval, Duration};
 use zkclear_api::{create_router, ApiState};
 use zkclear_sequencer::Sequencer;
 use zkclear_sequencer::SequencerError;
+#[cfg(feature = "rocksdb")]
+use zkclear_storage::RocksDBStorage;
+#[cfg(not(feature = "rocksdb"))]
 use zkclear_storage::InMemoryStorage;
 use zkclear_watcher::{Watcher, WatcherConfig};
 
@@ -12,6 +16,33 @@ fn get_block_interval_seconds() -> u64 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(zkclear_sequencer::config::DEFAULT_BLOCK_INTERVAL_SECONDS)
+}
+
+fn get_storage_path() -> PathBuf {
+    std::env::var("STORAGE_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("./data"))
+}
+
+fn init_storage() -> Result<Arc<dyn zkclear_storage::Storage>, Box<dyn std::error::Error>> {
+    #[cfg(feature = "rocksdb")]
+    {
+        let path = get_storage_path();
+        std::fs::create_dir_all(&path)
+            .map_err(|e| format!("Failed to create storage directory: {}", e))?;
+        
+        println!("Initializing RocksDB storage at: {}", path.display());
+        let storage = RocksDBStorage::open(&path)
+            .map_err(|e| format!("Failed to open RocksDB storage: {:?}", e))?;
+        
+        Ok(Arc::new(storage))
+    }
+    
+    #[cfg(not(feature = "rocksdb"))]
+    {
+        println!("Using InMemoryStorage (RocksDB not enabled)");
+        Ok(Arc::new(InMemoryStorage::new()))
+    }
 }
 
 async fn block_production_task(sequencer: Arc<Sequencer>) {
@@ -48,11 +79,14 @@ async fn block_production_task(sequencer: Arc<Sequencer>) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let storage = Arc::new(InMemoryStorage::new());
+    // Initialize storage
+    let storage = init_storage()?;
     let storage_trait: Arc<dyn zkclear_storage::Storage> = storage.clone();
     
+    // Initialize sequencer with storage (will load state from storage if available)
+    println!("Initializing sequencer with storage...");
     let sequencer = Arc::new(
-        Sequencer::with_storage(InMemoryStorage::new())
+        Sequencer::with_storage_arc(storage.clone())
             .map_err(|e| format!("Failed to initialize sequencer with storage: {:?}", e))?
     );
     
