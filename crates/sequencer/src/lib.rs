@@ -7,6 +7,7 @@ use zkclear_state::State;
 use zkclear_stf::{apply_block, StfError};
 use zkclear_storage::Storage;
 use zkclear_types::{Block, BlockId, Tx};
+use zkclear_prover::{Prover, ProverConfig};
 
 use config::{DEFAULT_MAX_QUEUE_SIZE, DEFAULT_MAX_TXS_PER_BLOCK, DEFAULT_SNAPSHOT_INTERVAL};
 use validation::{validate_tx, ValidationError};
@@ -21,6 +22,7 @@ pub enum SequencerError {
     InvalidNonce,
     ValidationFailed,
     StorageError(String),
+    ProverError(String),
 }
 
 pub struct Sequencer {
@@ -32,6 +34,7 @@ pub struct Sequencer {
     storage: Option<Arc<dyn Storage>>,
     snapshot_interval: BlockId,
     last_snapshot_block_id: Arc<Mutex<BlockId>>,
+    prover: Option<Arc<Prover>>,
 }
 
 impl Sequencer {
@@ -49,12 +52,27 @@ impl Sequencer {
             storage: None,
             snapshot_interval: DEFAULT_SNAPSHOT_INTERVAL,
             last_snapshot_block_id: Arc::new(Mutex::new(0)),
+            prover: None,
         }
     }
 
     pub fn with_snapshot_interval(mut self, interval: BlockId) -> Self {
         self.snapshot_interval = interval;
         self
+    }
+
+    /// Set prover for automatic proof generation
+    pub fn with_prover(mut self, prover: Arc<Prover>) -> Self {
+        self.prover = Some(prover);
+        self
+    }
+
+    /// Set prover configuration (will create prover internally)
+    pub fn with_prover_config(mut self, config: ProverConfig) -> Result<Self, SequencerError> {
+        let prover = Prover::new(config)
+            .map_err(|e| SequencerError::ProverError(format!("Failed to create prover: {:?}", e)))?;
+        self.prover = Some(Arc::new(prover));
+        Ok(self)
     }
 
     pub fn with_storage<S: Storage + 'static>(storage: S) -> Result<Self, SequencerError> {
@@ -180,7 +198,15 @@ impl Sequencer {
         Ok(())
     }
 
+    /// Build a block with transactions from the queue
+    /// This is a synchronous version that doesn't generate proofs
     pub fn build_block(&self) -> Result<Block, SequencerError> {
+        self.build_block_with_proof(false)
+    }
+
+    /// Build a block with optional proof generation
+    /// If generate_proof is true and prover is available, generates ZK proof
+    pub fn build_block_with_proof(&self, generate_proof: bool) -> Result<Block, SequencerError> {
         let mut queue = self.tx_queue.lock().unwrap();
         let block_id = *self.current_block_id.lock().unwrap();
 
@@ -198,26 +224,137 @@ impl Sequencer {
                 break;
             }
         }
+        drop(queue);
 
-        // TODO: Calculate state_root and withdrawals_root from state and withdrawals
-        // For now, use placeholder zeros
-        let state_root = [0u8; 32];
-        let withdrawals_root = [0u8; 32];
-        let block_proof = Vec::new(); // TODO: Generate ZK proof for block
+        // Get current state (before applying transactions)
+        let prev_state = self.state.lock().unwrap().clone();
+        drop(self.state.lock().unwrap());
+
+        // Calculate state roots and withdrawals root
+        // Note: prev_state_root is computed but not used directly here (used in proof generation)
+        let _prev_state_root = self.compute_state_root(&prev_state)?;
+        
+        // Apply transactions to a copy of state to get new state
+        let mut new_state = prev_state.clone();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        apply_block(&mut new_state, &transactions, timestamp)
+            .map_err(SequencerError::ExecutionFailed)?;
+        
+        let new_state_root = self.compute_state_root(&new_state)?;
+        let withdrawals_root = self.compute_withdrawals_root(&transactions)?;
+
+        // Generate proof if requested and prover is available
+        let block_proof = if generate_proof {
+            if let Some(ref prover) = self.prover {
+                // Create temporary block for proof generation
+                // Note: We use prev_state_root and new_state_root that we just computed
+                let temp_block = Block {
+                    id: block_id,
+                    transactions: transactions.clone(),
+                    timestamp,
+                    state_root: new_state_root,
+                    withdrawals_root,
+                    block_proof: Vec::new(),
+                };
+
+                // Generate proof (blocking call using tokio::runtime)
+                match self.generate_block_proof(prover, &temp_block, &prev_state, &new_state) {
+                    Ok(proof) => proof,
+                    Err(e) => {
+                        eprintln!("Warning: Failed to generate proof: {:?}", e);
+                        Vec::new() // Fallback to empty proof
+                    }
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
 
         let block = Block {
             id: block_id,
             transactions,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            state_root,
+            timestamp,
+            state_root: new_state_root,
             withdrawals_root,
             block_proof,
         };
 
         Ok(block)
+    }
+
+    /// Generate block proof using prover (blocking call)
+    fn generate_block_proof(
+        &self,
+        prover: &Prover,
+        block: &Block,
+        prev_state: &State,
+        new_state: &State,
+    ) -> Result<Vec<u8>, SequencerError> {
+        // Use tokio runtime to run async proof generation
+        let rt_handle = tokio::runtime::Handle::try_current()
+            .ok()
+            .or_else(|| {
+                // Create a new runtime if not in async context
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .ok()?;
+                Some(rt.handle().clone())
+            })
+            .ok_or_else(|| {
+                SequencerError::ProverError("Failed to get or create tokio runtime".to_string())
+            })?;
+
+        rt_handle.block_on(async {
+            let block_proof = prover.prove_block(block, prev_state, new_state)
+                .await
+                .map_err(|e| SequencerError::ProverError(format!("Proof generation failed: {:?}", e)))?;
+            
+            // Serialize the proof
+            bincode::serialize(&block_proof.zk_proof)
+                .map_err(|e| SequencerError::ProverError(format!("Failed to serialize proof: {}", e)))
+        })
+    }
+
+    /// Compute state root from state
+    fn compute_state_root(&self, _state: &State) -> Result<[u8; 32], SequencerError> {
+        // Use prover's compute_state_root if available, otherwise use simple hash
+        // For now, use simple hash (same logic as Prover's placeholder)
+        let state_bytes = bincode::serialize(_state)
+            .map_err(|e| SequencerError::StorageError(format!("Failed to serialize state: {}", e)))?;
+        
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(&state_bytes);
+        Ok(hasher.finalize().into())
+    }
+
+    /// Compute withdrawals root from transactions
+    fn compute_withdrawals_root(&self, transactions: &[Tx]) -> Result<[u8; 32], SequencerError> {
+        use zkclear_prover::merkle::{MerkleTree, hash_withdrawal};
+        
+        let mut tree = MerkleTree::new();
+        
+        for tx in transactions {
+            if let zkclear_types::TxPayload::Withdraw(w) = &tx.payload {
+                let leaf = hash_withdrawal(
+                    tx.from,
+                    w.asset_id,
+                    w.amount,
+                    w.chain_id,
+                );
+                tree.add_leaf(leaf);
+            }
+        }
+
+        tree.root()
+            .map_err(|e| SequencerError::ProverError(format!("Failed to compute withdrawals root: {:?}", e)))
     }
 
     pub fn execute_block(&self, block: Block) -> Result<(), SequencerError> {
@@ -281,7 +418,12 @@ impl Sequencer {
     }
 
     pub fn build_and_execute_block(&self) -> Result<Block, SequencerError> {
-        let block = self.build_block()?;
+        self.build_and_execute_block_with_proof(false)
+    }
+
+    /// Build and execute block with optional proof generation
+    pub fn build_and_execute_block_with_proof(&self, generate_proof: bool) -> Result<Block, SequencerError> {
+        let block = self.build_block_with_proof(generate_proof)?;
         self.execute_block(block.clone())?;
         Ok(block)
     }

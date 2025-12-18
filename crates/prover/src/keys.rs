@@ -82,6 +82,8 @@ impl KeyManager {
         let dummy_circuit = StarkProofVerifierCircuit {
             public_inputs: vec![0u8; 96], // 3 * 32 bytes for roots
             stark_proof: vec![0u8; 4],    // Dummy proof
+            #[cfg(feature = "winterfell")]
+            deserialized_proof: None,
         };
 
         // Use deterministic seed for key generation

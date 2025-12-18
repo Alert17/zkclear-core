@@ -14,6 +14,9 @@ pub mod circuit;
 #[cfg(feature = "arkworks")]
 pub mod keys;
 
+#[cfg(feature = "winterfell")]
+pub mod stark_proof;
+
 pub use prover::{Prover, ProverConfig};
 pub use error::ProverError;
 

@@ -241,12 +241,11 @@ impl Prover {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zkclear_types::{Tx, TxPayload, Withdraw};
 
     #[tokio::test]
     async fn test_prove_block_placeholder() {
         let config = ProverConfig::default();
-        let prover = Prover::new(config);
+        let prover = Prover::new(config).expect("Failed to create prover");
 
         let block = Block {
             id: 0,

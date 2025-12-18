@@ -3092,6 +3092,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber 0.3.22",
+ "zkclear-prover",
  "zkclear-sequencer",
  "zkclear-state",
  "zkclear-storage",
@@ -3140,9 +3141,13 @@ dependencies = [
 name = "zkclear-sequencer"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "k256",
  "serde",
+ "sha2",
  "sha3",
+ "tokio",
+ "zkclear-prover",
  "zkclear-state",
  "zkclear-stf",
  "zkclear-storage",

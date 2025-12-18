@@ -15,6 +15,7 @@ rocksdb = ["zkclear-storage/rocksdb"]
 zkclear-types = { path = "../types" }
 zkclear-state = { path = "../state" }
 zkclear-sequencer = { path = "../sequencer" }
+zkclear-prover = { path = "../prover" }
 zkclear-storage = { path = "../storage" }
 zkclear-watcher = { path = "../watcher" }
 axum = "0.7"

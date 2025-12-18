@@ -5,6 +5,7 @@ use tokio::time::{interval, Duration};
 use zkclear_api::{create_router, ApiState};
 use zkclear_sequencer::Sequencer;
 use zkclear_sequencer::SequencerError;
+use zkclear_prover::{Prover, ProverConfig};
 #[cfg(not(feature = "rocksdb"))]
 use zkclear_storage::InMemoryStorage;
 #[cfg(feature = "rocksdb")]
@@ -61,7 +62,8 @@ async fn block_production_task(sequencer: Arc<Sequencer>) {
             continue;
         }
 
-        match sequencer.build_and_execute_block() {
+        // Build and execute block with proof generation enabled
+        match sequencer.build_and_execute_block_with_proof(true) {
             Ok(block) => {
                 println!(
                     "Block {} created and executed: {} transactions, queue: {}",
@@ -90,12 +92,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage = init_storage()?;
     let storage_trait: Arc<dyn zkclear_storage::Storage> = storage.clone();
 
+    // Initialize prover (optional - will use placeholders if not configured)
+    let prover_config = ProverConfig {
+        use_placeholders: std::env::var("USE_PLACEHOLDER_PROVER")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(false),
+        groth16_keys_dir: std::env::var("GROTH16_KEYS_DIR")
+            .ok()
+            .map(std::path::PathBuf::from),
+        force_regenerate_keys: std::env::var("FORCE_REGENERATE_KEYS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(false),
+        ..Default::default()
+    };
+
+    let prover = match Prover::new(prover_config) {
+        Ok(p) => {
+            println!("Prover initialized successfully");
+            Some(Arc::new(p))
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to initialize prover: {:?}. Continuing without proof generation.", e);
+            None
+        }
+    };
+
     // Initialize sequencer with storage (will load state from storage if available)
     println!("Initializing sequencer with storage...");
-    let sequencer = Arc::new(
-        Sequencer::with_storage_arc(storage.clone())
-            .map_err(|e| format!("Failed to initialize sequencer with storage: {:?}", e))?,
-    );
+    let mut sequencer = Sequencer::with_storage_arc(storage.clone())
+        .map_err(|e| format!("Failed to initialize sequencer with storage: {:?}", e))?;
+    
+    // Set prover if available
+    if let Some(ref prover) = prover {
+        sequencer = sequencer.with_prover(Arc::clone(prover));
+        println!("Prover attached to sequencer");
+    }
+    
+    let sequencer = Arc::new(sequencer);
 
     println!("Sequencer initialized with storage");
     println!("Current block ID: {}", sequencer.get_current_block_id());
