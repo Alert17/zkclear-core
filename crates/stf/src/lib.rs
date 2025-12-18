@@ -312,6 +312,7 @@ mod tests {
         let account = state.get_account_by_address(addr).unwrap();
         assert_eq!(account.balances.len(), 1);
         assert_eq!(account.balances[0].asset_id, 0);
+        assert_eq!(account.balances[0].chain_id, default_chain_id());
         assert_eq!(account.balances[0].amount, 1000);
         assert_eq!(account.nonce, 1);
     }

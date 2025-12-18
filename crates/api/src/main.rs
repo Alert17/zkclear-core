@@ -11,7 +11,7 @@ fn get_block_interval_seconds() -> u64 {
     std::env::var("BLOCK_INTERVAL_SEC")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(5)
+        .unwrap_or(zkclear_sequencer::config::DEFAULT_BLOCK_INTERVAL_SECONDS)
 }
 
 async fn block_production_task(sequencer: Arc<Sequencer>) {
