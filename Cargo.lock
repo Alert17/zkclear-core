@@ -344,8 +344,8 @@ dependencies = [
  "sync_wrapper 1.0.2",
  "tokio",
  "tower 0.5.2",
- "tower-layer",
- "tower-service",
+ "tower-layer 0.3.3",
+ "tower-service 0.3.3",
  "tracing",
 ]
 
@@ -365,8 +365,8 @@ dependencies = [
  "pin-project-lite",
  "rustversion",
  "sync_wrapper 1.0.2",
- "tower-layer",
- "tower-service",
+ "tower-layer 0.3.3",
+ "tower-service 0.3.3",
  "tracing",
 ]
 
@@ -817,6 +817,12 @@ dependencies = [
 
 [[package]]
 name = "futures"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a471a38ef8ed83cd6e40aa59c1ffe17db6855c18e3604d9c4ed8c08ebc28678"
+
+[[package]]
+name = "futures"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65bc07b1a8bc7c85c5f2e110c476c7389b4554ba72af57d8445ea63a576b0876"
@@ -1090,7 +1096,7 @@ dependencies = [
  "pin-project-lite",
  "socket2 0.5.10",
  "tokio",
- "tower-service",
+ "tower-service 0.3.3",
  "tracing",
  "want",
 ]
@@ -1142,7 +1148,7 @@ dependencies = [
  "hyper 1.8.1",
  "pin-project-lite",
  "tokio",
- "tower-service",
+ "tower-service 0.3.3",
 ]
 
 [[package]]
@@ -1847,7 +1853,7 @@ dependencies = [
  "system-configuration",
  "tokio",
  "tokio-native-tls",
- "tower-service",
+ "tower-service 0.3.3",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2357,8 +2363,8 @@ version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
 dependencies = [
- "tower-layer",
- "tower-service",
+ "tower-layer 0.3.3",
+ "tower-service 0.3.3",
  "tracing",
 ]
 
@@ -2373,8 +2379,8 @@ dependencies = [
  "pin-project-lite",
  "sync_wrapper 1.0.2",
  "tokio",
- "tower-layer",
- "tower-service",
+ "tower-layer 0.3.3",
+ "tower-service 0.3.3",
  "tracing",
 ]
 
@@ -2390,8 +2396,18 @@ dependencies = [
  "http-body 1.0.1",
  "http-body-util",
  "pin-project-lite",
- "tower-layer",
- "tower-service",
+ "tower-layer 0.3.3",
+ "tower-service 0.3.3",
+]
+
+[[package]]
+name = "tower-layer"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ddf07e10c07dcc8f41da6de036dc66def1a85b70eb8a385159e3908bb258328"
+dependencies = [
+ "futures 0.1.31",
+ "tower-service 0.2.0",
 ]
 
 [[package]]
@@ -2399,6 +2415,15 @@ name = "tower-layer"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "121c2a6cda46980bb0fcd1647ffaf6cd3fc79a013de288782836f6df9c48780e"
+
+[[package]]
+name = "tower-service"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cc0c98637d23732f8de6dfd16494c9f1559c3b9e20b4a46462c8f9b9e827bfa"
+dependencies = [
+ "futures 0.1.31",
+]
 
 [[package]]
 name = "tower-service"
@@ -3049,12 +3074,14 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "bincode",
+ "futures 0.3.31",
  "hex",
  "serde",
  "serde_json",
  "tokio",
  "tower 0.4.13",
  "tower-http",
+ "tower-layer 0.1.0",
  "tracing",
  "tracing-subscriber 0.3.22",
  "zkclear-prover",
@@ -3093,7 +3120,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "chrono",
- "futures",
+ "futures 0.3.31",
  "hex",
  "serde",
  "serde_bytes",
@@ -3111,7 +3138,7 @@ name = "zkclear-sequencer"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "futures",
+ "futures 0.3.31",
  "k256",
  "serde",
  "sha2",
@@ -3164,7 +3191,7 @@ name = "zkclear-watcher"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "futures",
+ "futures 0.3.31",
  "hex",
  "reqwest",
  "serde",

@@ -216,14 +216,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("      Generating ZK proof (this may take a moment)...");
 
         let start = std::time::Instant::now();
-        // Use spawn_blocking to avoid blocking the async runtime
-        let sequencer_clone = sequencer.clone();
-        match tokio::task::spawn_blocking(move || {
-            sequencer_clone.build_and_execute_block_with_proof(true)
-        })
-        .await
-        {
-            Ok(Ok(block)) => {
+        // Call directly from async context - for placeholder proofs this is very fast
+        match sequencer.build_and_execute_block_with_proof(true) {
+            Ok(block) => {
                 let duration = start.elapsed();
                 println!(
                     "      Block {} created and executed ({:.2}s)",
@@ -244,12 +239,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("         WARNING: ZK proof is empty (placeholder mode)");
                 }
             }
-            Ok(Err(e)) => {
-                println!("      ERROR: Block creation failed: {e:?}");
-                break;
-            }
             Err(e) => {
-                println!("      ERROR: Task failed: {e:?}");
+                println!("      ERROR: Block creation failed: {e:?}");
                 break;
             }
         }
@@ -322,17 +313,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("   Creating block with withdrawal...");
         println!("      Generating ZK proof (this may take a moment)...");
         let start = std::time::Instant::now();
-        // Use spawn_blocking with timeout to avoid blocking forever
-        let sequencer_clone = sequencer.clone();
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            tokio::task::spawn_blocking(move || {
-                sequencer_clone.build_and_execute_block_with_proof(true)
-            }),
-        )
-        .await
-        {
-            Ok(Ok(Ok(block))) => {
+        // Call directly from async context - for placeholder proofs this is very fast
+        match sequencer.build_and_execute_block_with_proof(true) {
+            Ok(block) => {
                 let duration = start.elapsed();
                 println!(
                     "      Block {} created with withdrawal ({:.2}s)",
@@ -346,15 +329,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("         Proof size: {} bytes", block.block_proof.len());
                 println!("         Withdrawal processed");
             }
-            Ok(Ok(Err(e))) => {
+            Err(e) => {
                 println!("      ERROR: Block creation failed: {e:?}");
-            }
-            Ok(Err(e)) => {
-                println!("      ERROR: Task failed: {e:?}");
-            }
-            Err(_) => {
-                println!("      TIMEOUT: Block creation timed out after 30 seconds");
-                println!("      WARNING: Withdrawal block not processed");
             }
         }
     }

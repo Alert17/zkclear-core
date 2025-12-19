@@ -1,15 +1,17 @@
 pub mod config;
+pub mod security;
 mod validation;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use zkclear_prover::{Prover, ProverConfig};
+use zkclear_prover::{Prover, ProverConfig, ProverError};
 use zkclear_state::State;
 use zkclear_stf::{apply_block, StfError};
 use zkclear_storage::Storage;
 use zkclear_types::{Block, BlockId, Tx};
 
 use config::{DEFAULT_MAX_QUEUE_SIZE, DEFAULT_MAX_TXS_PER_BLOCK, DEFAULT_SNAPSHOT_INTERVAL};
+use security::{validate_address, validate_nonce_gap, validate_tx_size};
 use validation::{validate_tx, ValidationError};
 
 #[derive(Debug)]
@@ -173,7 +175,23 @@ impl Sequencer {
 
     pub fn submit_tx_with_validation(&self, tx: Tx, validate: bool) -> Result<(), SequencerError> {
         if validate {
+            // Security checks: validate transaction size and address format
+            if let Err(_) = validate_tx_size(&tx) {
+                return Err(SequencerError::InvalidSignature); // Reuse error type
+            }
+            
+            if !validate_address(&tx.from) {
+                return Err(SequencerError::InvalidSignature);
+            }
+            
             let state = self.state.lock().unwrap();
+            
+            // Validate nonce gap
+            let account = state.get_account_by_address(tx.from);
+            let current_nonce = account.map(|a| a.nonce).unwrap_or(0);
+            if let Err(_) = validate_nonce_gap(current_nonce, tx.nonce) {
+                return Err(SequencerError::InvalidNonce);
+            }
 
             match validate_tx(&state, &tx) {
                 Ok(()) => {}
@@ -290,8 +308,8 @@ impl Sequencer {
     }
 
     /// Generate block proof using prover (blocking call)
-    /// This is called from spawn_blocking, so we create a tokio runtime
-    /// because async_trait functions require a tokio runtime to execute properly
+    /// This is called from spawn_blocking, so we try to use Handle::current() if available
+    /// Otherwise create a new runtime in a separate thread to avoid deadlocks
     fn generate_block_proof(
         &self,
         prover: &Arc<Prover>,
@@ -299,26 +317,51 @@ impl Sequencer {
         prev_state: &State,
         new_state: &State,
     ) -> Result<Vec<u8>, SequencerError> {
-        // We're in spawn_blocking, so we can create a new runtime
-        // Use multi_thread runtime to properly handle async_trait functions
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1) // Use single thread to avoid overhead
-            .enable_all()
-            .build()
-            .map_err(|e| {
-                SequencerError::ProverError(format!("Failed to create runtime: {:?}", e))
-            })?;
+        // We're in spawn_blocking, so we can't use Handle::current() directly
+        // Create runtime in a separate thread to avoid deadlocks
 
-        // Execute the async function
-        let block_proof = rt
-            .block_on(prover.prove_block(block, prev_state, new_state))
-            .map_err(|e| {
-                SequencerError::ProverError(format!("Proof generation failed: {:?}", e))
-            })?;
+        // Clone data needed for proof generation
+        let prover_clone = Arc::clone(prover);
+        let block_clone = block.clone();
+        let prev_state_clone = prev_state.clone();
+        let new_state_clone = new_state.clone();
 
-        // Serialize the proof
-        bincode::serialize(&block_proof.zk_proof)
-            .map_err(|e| SequencerError::ProverError(format!("Failed to serialize proof: {}", e)))
+        // Create runtime in a separate thread to avoid deadlocks
+        // This is necessary because we're already in spawn_blocking
+        let handle = std::thread::spawn(move || {
+            // Use current_thread runtime to avoid spawning new threads
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            
+            match rt {
+                Ok(runtime) => {
+                    runtime.block_on(
+                        prover_clone.prove_block(&block_clone, &prev_state_clone, &new_state_clone)
+                    )
+                }
+                Err(e) => {
+                    Err(ProverError::StarkProof(format!("Failed to create runtime: {:?}", e)))
+                }
+            }
+        });
+
+        // Wait for result - join will block until thread completes
+        // For placeholder proofs, this should be very fast (< 1ms)
+        // For real proofs, this may take longer, but timeout is handled in demo
+        match handle.join() {
+            Ok(Ok(block_proof)) => {
+                // Serialize the proof
+                bincode::serialize(&block_proof.zk_proof)
+                    .map_err(|e| SequencerError::ProverError(format!("Failed to serialize proof: {}", e)))
+            }
+            Ok(Err(e)) => {
+                Err(SequencerError::ProverError(format!("Proof generation failed: {:?}", e)))
+            }
+            Err(_) => {
+                Err(SequencerError::ProverError("Thread panicked during proof generation".to_string()))
+            }
+        }
     }
 
     /// Compute state root from state

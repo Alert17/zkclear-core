@@ -9,17 +9,32 @@ use zkclear_storage::Storage;
 use zkclear_types::{AssetId, BlockId, DealId};
 
 use crate::types::*;
+use zkclear_sequencer::security::{sanitize_string, validate_hex_string};
 
 pub struct ApiState {
     pub sequencer: Arc<Sequencer>,
     pub storage: Option<Arc<dyn Storage>>,
+    pub rate_limit_state: Option<Arc<crate::middleware::RateLimitState>>,
 }
 
 pub async fn get_account_balance(
     State(state): State<Arc<ApiState>>,
     Path((address, asset_id)): Path<(String, AssetId)>,
 ) -> Result<Json<AccountBalanceResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let address_bytes = hex::decode(address.trim_start_matches("0x")).map_err(|_| {
+    // Sanitize and validate input
+    let sanitized_address = sanitize_string(&address);
+    
+    if !validate_hex_string(&sanitized_address) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "InvalidAddress".to_string(),
+                message: "Invalid address format".to_string(),
+            }),
+        ));
+    }
+    
+    let address_bytes = hex::decode(sanitized_address.trim_start_matches("0x")).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {

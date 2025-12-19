@@ -152,9 +152,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Sequencer initialized with storage");
     println!("Current block ID: {}", sequencer.get_current_block_id());
 
+    // Initialize rate limiting
+    let max_requests = std::env::var("RATE_LIMIT_MAX_REQUESTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100);
+    let window_seconds = std::env::var("RATE_LIMIT_WINDOW_SECONDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+    let rate_limit_state = Arc::new(zkclear_api::RateLimitState::new(max_requests, window_seconds));
+
     let api_state = Arc::new(ApiState {
         sequencer: sequencer.clone(),
         storage: Some(storage_trait),
+        rate_limit_state: Some(rate_limit_state),
     });
 
     let app = create_router(api_state);
