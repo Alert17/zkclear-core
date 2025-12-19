@@ -135,7 +135,7 @@ impl StarkProver for WinterfellStarkProver {
         // Serialize proof and trace_info together
         // This allows proper verification later
         use bincode;
-        
+
         #[derive(serde::Serialize, serde::Deserialize)]
         struct StarkProofWithTraceInfo {
             proof_bytes: Vec<u8>,
@@ -143,7 +143,7 @@ impl StarkProver for WinterfellStarkProver {
             trace_length: usize,
             version: u8,
         }
-        
+
         let proof_bytes = proof.to_bytes();
         let wrapper = StarkProofWithTraceInfo {
             proof_bytes,
@@ -151,7 +151,7 @@ impl StarkProver for WinterfellStarkProver {
             trace_length: trace_info.length(),
             version: 1, // Version 1 for proof with trace_info
         };
-        
+
         let serialized = bincode::serialize(&wrapper).map_err(|e| {
             ProverError::Serialization(format!("Failed to serialize proof with trace_info: {}", e))
         })?;

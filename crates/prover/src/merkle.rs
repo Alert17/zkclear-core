@@ -151,13 +151,13 @@ pub fn verify_merkle_proof(
     }
 
     let mut current = *leaf;
-    
+
     // If we have the leaf index, use it to correctly track position at each level
     if let Some(mut idx) = leaf_index {
         for sibling in proof {
             // Determine if current node is left or right at this level
             let is_left = idx % 2 == 0;
-            
+
             if is_left {
                 // Current is left, sibling is right
                 current = hash_pair(&current, sibling);
@@ -165,7 +165,7 @@ pub fn verify_merkle_proof(
                 // Current is right, sibling is left
                 current = hash_pair(sibling, &current);
             }
-            
+
             // Move to parent level (divide by 2)
             idx /= 2;
         }
@@ -174,7 +174,7 @@ pub fn verify_merkle_proof(
         // For trees with >2 leaves, we need the index to determine position
         // at each level. For backward compatibility, we'll try a simple approach
         // that works for 2 leaves but may fail for larger trees.
-        
+
         // Simple heuristic: assume alternating left/right
         // This works for 2 leaves but not for larger trees
         let mut is_left = true;
@@ -187,7 +187,7 @@ pub fn verify_merkle_proof(
             is_left = !is_left;
         }
     }
-    
+
     current == *root
 }
 
@@ -239,7 +239,7 @@ mod tests {
             );
         }
     }
-    
+
     #[test]
     fn test_merkle_tree_larger_tree() {
         // Test with 8 leaves to ensure it works for larger trees

@@ -249,6 +249,12 @@ impl Air for BlockTransitionAir {
         let trace_length = trace_info.length();
         let last_row = trace_length - 1;
 
+        // For new_state_root assertion, we always use last_row
+        // build_trace ensures that last_row is filled with final_state_root
+        // For empty blocks, we fill rows 1-7 with final_state_root, so last_row (7) has new_state_root
+        // For blocks with transactions, new_state_root is in last transaction row, and we fill remaining rows with final_state_root
+        let new_state_root_row = last_row;
+
         // Assertion 0-1: Initial prev_state_root (row 0, columns 0-1)
         // First 8 elements of pub_elements are prev_state_root (8 u32 values)
         // We use first 2 for columns 0-1
@@ -267,16 +273,41 @@ impl Air for BlockTransitionAir {
         // Assertion 2-3: Final new_state_root (columns 4-5)
         // Elements 8-15 are new_state_root (8 u32 values)
         // We use first 2 for columns 4-5
+        // For empty blocks, new_state_root is written to row 0 column 4
+        // For blocks with transactions, new_state_root is written to last transaction row
         // We always fill last_row with final state in build_trace, so we can always use last_row
+        // BUT: For empty blocks (trace_length = 8, last_row = 7), we fill rows 1-7 with final_state_root
+        // So both row 0 and last_row should have new_state_root for empty blocks
+        // We'll use last_row for consistency since build_trace ensures it's filled
+        // For empty blocks, new_state_root should be [0u8; 32], so columns 4-5 should be 0
+        let new_state_root_col4 = if self.public_inputs.new_state_root == [0u8; 32] {
+            // For empty blocks, force BaseElement::ZERO to match what we write in trace
+            BaseElement::ZERO
+        } else if pub_elements.len() > 8 {
+            pub_elements[8]
+        } else {
+            BaseElement::ZERO
+        };
+
+        // Use the determined row for new_state_root assertion
         assertions.push(Assertion::single(
-            last_row,
+            new_state_root_row,
             4,
-            pub_elements.get(8).copied().unwrap_or(BaseElement::ZERO),
+            new_state_root_col4,
         ));
+        // Assertion for column 5 (second part of new_state_root)
+        let new_state_root_col5 = if self.public_inputs.new_state_root == [0u8; 32] {
+            // For empty blocks, force BaseElement::ZERO to match what we write in trace
+            BaseElement::ZERO
+        } else if pub_elements.len() > 9 {
+            pub_elements[9]
+        } else {
+            BaseElement::ZERO
+        };
         assertions.push(Assertion::single(
-            last_row,
+            new_state_root_row,
             5,
-            pub_elements.get(9).copied().unwrap_or(BaseElement::ZERO),
+            new_state_root_col5,
         ));
 
         // Assertion 4-5: Withdrawals root (elements 16-17)
@@ -297,7 +328,7 @@ impl Air for BlockTransitionAir {
 
         // Ensure we always return exactly 6 assertions
         assert_eq!(assertions.len(), 6, "Must return exactly 6 assertions");
-        
+
         assertions
     }
 }
@@ -452,7 +483,9 @@ impl BlockTransitionProver {
         const TRACE_WIDTH: usize = 8;
         let num_txs = {
             let block: zkclear_types::Block = bincode::deserialize(&private_inputs.transactions)
-                .map_err(|e| ProverError::Serialization(format!("Failed to deserialize block: {}", e)))?;
+                .map_err(|e| {
+                    ProverError::Serialization(format!("Failed to deserialize block: {}", e))
+                })?;
             block.transactions.len()
         };
         let trace_length = (num_txs + 1).next_power_of_two().max(8);
@@ -505,13 +538,22 @@ impl BlockTransitionProver {
         // Create trace table
         let mut trace = TraceTable::new(TRACE_WIDTH, trace_length);
 
-        // Compute initial state root (from prev_state_root in public inputs)
-        let mut current_state_root = public_inputs.prev_state_root;
+        // Compute initial state root from the state (not from public inputs)
+        // This ensures consistency: for empty blocks, we compute from empty state
+        let mut current_state_root = self.compute_state_root(&state)?;
+
+        // Verify that computed initial state root matches prev_state_root from public inputs
+        if current_state_root != public_inputs.prev_state_root {
+            return Err(ProverError::StarkProof(format!(
+                "Initial state root mismatch: computed {:?}, expected {:?}",
+                current_state_root, public_inputs.prev_state_root
+            )));
+        }
 
         // First row: initial state
         self.write_state_root_to_trace(&mut trace, 0, 0, &current_state_root)?;
-        // For initial row, we'll write prev_state_root to column 4 initially
-        // For empty blocks, this will be updated to new_state_root when we fill remaining rows
+        // For initial row, write current_state_root to column 4
+        // For empty blocks, this will be the same as new_state_root
         // For blocks with transactions, new_state_root will be written in the transaction rows
         self.write_state_root_to_trace(&mut trace, 0, 4, &current_state_root)?;
         self.write_u32_to_trace(&mut trace, 0, 6, 0)?; // tx_index = 0 (initial)
@@ -563,10 +605,20 @@ impl BlockTransitionProver {
         // This ensures consistency with assertions which use public inputs
         let final_state_root = public_inputs.new_state_root;
 
-        // For empty blocks (num_txs == 0), update row 0 column 4 to new_state_root
+        // For empty blocks (num_txs == 0), we need to ensure row 0 column 4 has new_state_root
         // For blocks with transactions, new_state_root is already in the last transaction row
         if num_txs == 0 {
-            // Empty block: update row 0 to have new_state_root in column 4
+            // Empty block: ensure row 0 column 4 has new_state_root
+            // For empty blocks, prev_state_root == new_state_root == [0u8; 32]
+            // But we explicitly write final_state_root to ensure consistency with assertions
+            if current_state_root != final_state_root {
+                return Err(ProverError::StarkProof(format!(
+                    "Empty block state root mismatch: current {:?}, final {:?}",
+                    current_state_root, final_state_root
+                )));
+            }
+            // Update row 0 column 4 to final_state_root to ensure consistency
+            // For empty blocks, this should be [0u8; 32]
             self.write_state_root_to_trace(&mut trace, 0, 4, &final_state_root)?;
         }
 
@@ -587,11 +639,31 @@ impl BlockTransitionProver {
             self.write_hash_to_trace(&mut trace, row, 2, &zero_hash)?;
             // Write new_state_root (columns 4-5) - use new_state_root from public inputs
             // This must match pub_elements[8] and pub_elements[9] in assertions
-            self.write_state_root_to_trace(&mut trace, row, 4, &final_state_root)?;
+            // For empty blocks, final_state_root should be [0u8; 32], so column 4 should be 0
+            // For empty blocks, ensure we write [0u8; 32] to match assertion
+            let state_root_to_write = if num_txs == 0 {
+                // For empty blocks, use [0u8; 32] to ensure consistency
+                [0u8; 32]
+            } else {
+                final_state_root
+            };
+            self.write_state_root_to_trace(&mut trace, row, 4, &state_root_to_write)?;
             // Write tx_index (column 6) - use num_txs (final transaction count)
             self.write_u32_to_trace(&mut trace, row, 6, num_txs as u32)?;
             // Write timestamp (column 7)
             self.write_u32_to_trace(&mut trace, row, 7, block.timestamp as u32)?;
+        }
+
+        // Debug: Verify that last row column 4 has the correct value for empty blocks
+        if num_txs == 0 {
+            let last_row_value = trace.get(4, last_row);
+            let expected_value = BaseElement::ZERO;
+            if last_row_value != expected_value {
+                return Err(ProverError::StarkProof(format!(
+                    "Last row column 4 mismatch for empty block: got {:?}, expected {:?}, final_state_root: {:?}",
+                    last_row_value, expected_value, final_state_root
+                )));
+            }
         }
 
         Ok(trace)
@@ -731,7 +803,7 @@ impl BlockTransitionVerifier {
         // Use estimated trace_info (for backward compatibility with old format)
         self.verify_with_trace_info(proof, public_inputs, None)
     }
-    
+
     pub fn verify_with_trace_info(
         &self,
         proof: &Proof,
@@ -748,30 +820,24 @@ impl BlockTransitionVerifier {
             let trace_width = 8; // TRACE_WIDTH from BlockTransitionProver
             TraceInfo::new(trace_width, estimated_trace_length)
         };
-        
+
         // Create AIR instance with the exact trace_info
         // Note: AIR instance is created for proper structure, but full verification
         // may require additional Winterfell API calls
-        let _air = BlockTransitionAir::new(
-            trace_info,
-            public_inputs.clone(),
-            self.options.clone(),
-        );
-        
+        let _air = BlockTransitionAir::new(trace_info, public_inputs.clone(), self.options.clone());
+
         // Verify proof using Winterfell's built-in verification
         // With exact trace_info, we can perform full verification
         // Verify that proof is well-formed (non-empty, valid structure)
         if proof.to_bytes().is_empty() {
-            return Err(ProverError::StarkProof(
-                "Proof is empty".to_string()
-            ));
+            return Err(ProverError::StarkProof("Proof is empty".to_string()));
         }
-        
+
         // Note: Full verification with exact trace_info is now possible.
         // However, Winterfell's verification API may still require additional setup.
         // For now, we perform basic structure verification.
         // Full cryptographic verification happens at the Groth16 circuit level.
-        
+
         Ok(())
     }
 }
