@@ -248,8 +248,8 @@ pub async fn get_supported_chains() -> Json<serde_json::Value> {
                 "name": "Polygon"
             },
             {
-                "chain_id": zkclear_types::chain_ids::MANTLE,
-                "name": "Mantle"
+                "chain_id": zkclear_types::chain_ids::BASE,
+                "name": "Base"
             },
             {
                 "chain_id": zkclear_types::chain_ids::ARBITRUM,

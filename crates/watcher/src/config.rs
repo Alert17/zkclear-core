@@ -75,10 +75,10 @@ impl Default for WatcherConfig {
                     reorg_safety_blocks: 10,
                 },
                 ChainConfig {
-                    chain_id: zkclear_types::chain_ids::MANTLE,
-                    rpc_url: std::env::var("MANTLE_RPC_URL")
-                        .unwrap_or_else(|_| "https://rpc.mantle.xyz".to_string()),
-                    deposit_contract_address: std::env::var("MANTLE_DEPOSIT_CONTRACT")
+                    chain_id: zkclear_types::chain_ids::BASE,
+                    rpc_url: std::env::var("BASE_RPC_URL")
+                        .unwrap_or_else(|_| "https://mainnet.base.org".to_string()),
+                    deposit_contract_address: std::env::var("BASE_DEPOSIT_CONTRACT")
                         .unwrap_or_else(|_| {
                             "0x0000000000000000000000000000000000000000".to_string()
                         }),
