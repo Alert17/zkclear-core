@@ -162,7 +162,7 @@ impl SnarkProver for ArkworksSnarkProver {
         };
 
         #[cfg(not(feature = "winterfell"))]
-        let deserialized_proof = None;
+        let _deserialized_proof = None::<Option<()>>;
 
         // Get proving key (pre-computed and loaded)
         let pk = self.key_manager.proving_key()?;

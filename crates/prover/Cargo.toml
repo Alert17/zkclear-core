@@ -39,3 +39,8 @@ arkworks = ["dep:ark-groth16", "dep:ark-bn254", "dep:ark-ec", "dep:ark-ff", "dep
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
 
+[[bin]]
+name = "export_verifying_key"
+path = "src/bin/export_verifying_key.rs"
+required-features = ["arkworks"]
+
