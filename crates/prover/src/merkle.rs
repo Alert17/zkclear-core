@@ -18,15 +18,23 @@ impl MerkleTree {
     }
 
     /// Compute the Merkle root
+    /// Optimized to avoid unnecessary allocations
     pub fn root(&self) -> Result<[u8; 32], ProverError> {
         if self.leaves.is_empty() {
             return Ok([0u8; 32]);
         }
 
-        let mut current_level = self.leaves.clone();
+        if self.leaves.len() == 1 {
+            return Ok(self.leaves[0]);
+        }
+
+        // Pre-allocate with capacity estimate to reduce reallocations
+        let mut current_level = Vec::with_capacity(self.leaves.len());
+        current_level.extend_from_slice(&self.leaves);
 
         while current_level.len() > 1 {
-            let mut next_level = Vec::new();
+            let next_level_len = (current_level.len() + 1) / 2;
+            let mut next_level = Vec::with_capacity(next_level_len);
 
             for i in (0..current_level.len()).step_by(2) {
                 if i + 1 < current_level.len() {

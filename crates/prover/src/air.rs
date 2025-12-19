@@ -150,7 +150,8 @@ impl MinimalStarkProver {
     }
 
     /// Build execution trace
-    fn build_trace(
+    /// Made public for testing commitments validation
+    pub fn build_trace(
         &self,
         public_inputs: &BlockTransitionInputs,
         block: &Block,
@@ -288,7 +289,8 @@ impl MinimalStarkProver {
     }
 
     /// Evaluate constraints on trace
-    fn evaluate_constraints(
+    /// Made public for testing commitments validation
+    pub fn evaluate_constraints(
         &self,
         trace: &ExecutionTrace,
         public_inputs: &BlockTransitionInputs,
@@ -421,22 +423,24 @@ impl MinimalStarkProver {
     }
 }
 
-/// Execution trace row
+/// Trace row for execution trace
+/// Made public for testing commitments validation
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct TraceRow {
-    prev_state_root: [u8; 32],
-    tx_hash: [u8; 32],
-    new_state_root: [u8; 32],
-    tx_index: u32,
-    timestamp: u64,
+pub struct TraceRow {
+    pub prev_state_root: [u8; 32],
+    pub tx_hash: [u8; 32],
+    pub new_state_root: [u8; 32],
+    pub tx_index: u32,
+    pub timestamp: u64,
 }
 
-/// Execution trace
+/// Execution trace for STARK proof
+/// Made public for testing commitments validation
 #[derive(Debug, Clone)]
-struct ExecutionTrace {
-    width: usize,
-    length: usize,
-    rows: Vec<TraceRow>,
+pub struct ExecutionTrace {
+    pub width: usize,
+    pub length: usize,
+    pub rows: Vec<TraceRow>,
 }
 
 /// Minimal STARK verifier

@@ -248,8 +248,19 @@ impl Prover {
         tree.root()
     }
 
+    /// Get reference to STARK prover (for testing/profiling)
+    pub fn stark_prover(&self) -> &dyn StarkProver {
+        self.stark_prover.as_ref()
+    }
+
+    /// Get reference to SNARK prover (for testing/profiling)
+    pub fn snark_prover(&self) -> &dyn SnarkProver {
+        self.snark_prover.as_ref()
+    }
+
     /// Compute withdrawals root from block
-    fn compute_withdrawals_root(&self, block: &Block) -> Result<[u8; 32], ProverError> {
+    /// Made public for testing/profiling
+    pub fn compute_withdrawals_root(&self, block: &Block) -> Result<[u8; 32], ProverError> {
         let mut tree = MerkleTree::new();
 
         // Extract withdrawals from block transactions

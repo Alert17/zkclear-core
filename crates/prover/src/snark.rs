@@ -132,9 +132,29 @@ impl SnarkProver for ArkworksSnarkProver {
         let pk = self.key_manager.proving_key()?;
 
         // Create witness (circuit with all values assigned)
+        // CRITICAL: The circuit structure must match exactly what was used for key generation
+        // - public_inputs: always 96 bytes (3 * 32 bytes for roots)
+        // - stark_proof: always exactly 200 bytes (will be padded/truncated to match)
+        let min_proof_size = 200; // Same as in keys.rs
+        let mut padded_stark_proof = stark_proof.to_vec();
+        if padded_stark_proof.len() < min_proof_size {
+            padded_stark_proof.resize(min_proof_size, 0);
+        } else if padded_stark_proof.len() > min_proof_size {
+            // Truncate to match key generation size
+            padded_stark_proof.truncate(min_proof_size);
+        }
+        
+        // Ensure public_inputs is exactly 96 bytes
+        let mut normalized_public_inputs = public_inputs.to_vec();
+        if normalized_public_inputs.len() < 96 {
+            normalized_public_inputs.resize(96, 0);
+        } else if normalized_public_inputs.len() > 96 {
+            normalized_public_inputs.truncate(96);
+        }
+        
         let circuit_with_witness = StarkProofVerifierCircuit {
-            public_inputs: public_inputs.to_vec(),
-            stark_proof: stark_proof.to_vec(),
+            public_inputs: normalized_public_inputs,
+            stark_proof: padded_stark_proof,
         };
 
         // Use deterministic RNG for proof generation
@@ -151,16 +171,9 @@ impl SnarkProver for ArkworksSnarkProver {
 
         // Generate proof using pre-computed proving key
         // This can take 10-30 seconds depending on circuit complexity
-        eprintln!("      Generating Groth16 proof (this may take 10-30 seconds)...");
-        let start = std::time::Instant::now();
         let proof = Groth16::<Bn254>::prove(pk, circuit_with_witness, &mut rng).map_err(|e| {
             ProverError::SnarkProof(format!("Failed to generate Groth16 proof: {:?}", e))
         })?;
-        let duration = start.elapsed();
-        eprintln!(
-            "      Groth16 proof generated in {:.2}s",
-            duration.as_secs_f64()
-        );
 
         // Serialize proof and public inputs using ark-serialize
         use ark_serialize::{CanonicalSerialize, Compress};

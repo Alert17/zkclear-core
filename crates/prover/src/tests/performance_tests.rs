@@ -451,6 +451,86 @@ async fn test_state_root_computation_performance() {
     }
 }
 
+/// Detailed profiling of proof generation stages
+#[cfg(any(feature = "stark", feature = "arkworks"))]
+#[tokio::test]
+async fn test_detailed_proof_generation_profiling() {
+    let mut config = ProverConfig::default();
+    config.use_placeholders = false;
+    let prover = Prover::new(config).expect("Failed to create prover");
+
+    let block = create_test_block(1, 4);
+    let prev_state = State::new();
+    let mut new_state = prev_state.clone();
+
+    for tx in &block.transactions {
+        apply_tx(&mut new_state, tx, block.timestamp).expect("Failed to apply transaction");
+    }
+
+    // Profile state root computation
+    let start = Instant::now();
+    let prev_state_root = Prover::compute_state_root_static(&prev_state)
+        .expect("Failed to compute prev root");
+    let new_state_root = Prover::compute_state_root_static(&new_state)
+        .expect("Failed to compute new root");
+    let withdrawals_root = prover
+        .compute_withdrawals_root(&block)
+        .expect("Failed to compute withdrawals root");
+    let state_root_time = start.elapsed();
+
+    // Profile STARK proof generation
+    let block_data = bincode::serialize(&block).expect("Failed to serialize block");
+    let stark_start = Instant::now();
+    let stark_proof = prover
+        .stark_prover()
+        .prove_block_transition(
+            &prev_state_root,
+            &new_state_root,
+            &withdrawals_root,
+            &block_data,
+        )
+        .await
+        .expect("Failed to generate STARK proof");
+    let stark_time = stark_start.elapsed();
+
+    // Profile SNARK proof generation
+    let public_inputs = bincode::serialize(&(prev_state_root, new_state_root, withdrawals_root))
+        .expect("Failed to serialize public inputs");
+    let snark_start = Instant::now();
+    let snark_proof = prover
+        .snark_prover()
+        .wrap_stark_in_snark(&stark_proof, &public_inputs)
+        .await
+        .expect("Failed to generate SNARK proof");
+    let snark_time = snark_start.elapsed();
+
+    // Total time
+    let total_time = state_root_time + stark_time + snark_time;
+
+    println!("\nDetailed proof generation profiling:");
+    println!("  State root computation: {:?} ({:.2}%)", 
+        state_root_time, 
+        state_root_time.as_secs_f64() / total_time.as_secs_f64() * 100.0
+    );
+    println!("  STARK proof generation: {:?} ({:.2}%)", 
+        stark_time, 
+        stark_time.as_secs_f64() / total_time.as_secs_f64() * 100.0
+    );
+    println!("  SNARK proof generation: {:?} ({:.2}%)", 
+        snark_time, 
+        snark_time.as_secs_f64() / total_time.as_secs_f64() * 100.0
+    );
+    println!("  Total time: {:?}", total_time);
+    println!("  STARK proof size: {} bytes", stark_proof.len());
+    println!("  SNARK proof size: {} bytes", snark_proof.len());
+
+    // Validate performance
+    assert!(
+        total_time.as_secs() < 60,
+        "Total proof generation should complete within 60 seconds"
+    );
+}
+
 /// Test multiple proof generations for consistency
 #[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]

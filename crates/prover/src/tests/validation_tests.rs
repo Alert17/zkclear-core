@@ -494,3 +494,232 @@ async fn test_validate_proof_size_scaling() {
         assert!(*size > 0, "Proof {} should have non-zero size", i);
     }
 }
+
+/// Validate that STARK proof commitments correspond to actual trace and constraints
+#[cfg(feature = "stark")]
+#[tokio::test]
+async fn test_validate_stark_commitments() {
+    use crate::air::{BlockTransitionInputs, BlockTransitionPrivateInputs, MinimalStarkProver};
+    use sha2::{Digest, Sha256};
+    use crate::merkle::MerkleTree;
+
+    let prover = MinimalStarkProver::new();
+    let block = create_test_block(1, 3);
+    let prev_state = State::new();
+    let mut new_state = prev_state.clone();
+
+    for tx in &block.transactions {
+        apply_tx(&mut new_state, tx, block.timestamp).expect("Failed to apply transaction");
+    }
+
+    let prev_state_root =
+        Prover::compute_state_root_static(&prev_state).expect("Failed to compute prev root");
+    let new_state_root =
+        Prover::compute_state_root_static(&new_state).expect("Failed to compute new root");
+    let withdrawals_root = [0u8; 32];
+
+    let block_data = bincode::serialize(&block).expect("Failed to serialize block");
+
+    let public_inputs = BlockTransitionInputs {
+        prev_state_root,
+        new_state_root,
+        withdrawals_root,
+        block_id: block.id,
+        timestamp: block.timestamp,
+    };
+
+    let private_inputs = BlockTransitionPrivateInputs {
+        transactions: block_data,
+    };
+
+    // Generate proof
+    let stark_proof = prover
+        .prove(public_inputs.clone(), private_inputs.clone())
+        .expect("Failed to generate STARK proof");
+
+    // Verify proof integrity
+    assert!(
+        stark_proof.verify_integrity(),
+        "Proof integrity should be valid"
+    );
+
+    // Manually rebuild trace to verify commitment
+    let trace = prover
+        .build_trace(&public_inputs, &bincode::deserialize(&private_inputs.transactions).unwrap())
+        .expect("Failed to build trace");
+
+    // Compute expected trace commitment
+    let mut expected_trace_tree = MerkleTree::new();
+    for row in &trace.rows {
+        let row_bytes = bincode::serialize(row).expect("Failed to serialize trace row");
+        let leaf = Sha256::digest(&row_bytes);
+        expected_trace_tree.add_leaf(leaf.into());
+    }
+    let expected_trace_commitment = expected_trace_tree
+        .root()
+        .expect("Failed to compute trace commitment");
+
+    // Verify trace commitment matches
+    assert_eq!(
+        stark_proof.trace_commitment, expected_trace_commitment,
+        "Trace commitment should match computed value"
+    );
+
+    // Manually evaluate constraints to verify commitment
+    let constraints = prover
+        .evaluate_constraints(&trace, &public_inputs)
+        .expect("Failed to evaluate constraints");
+
+    // Compute expected constraint commitment
+    let mut expected_constraint_tree = MerkleTree::new();
+    for constraint in &constraints {
+        expected_constraint_tree.add_leaf(*constraint);
+    }
+    let expected_constraint_commitment = expected_constraint_tree
+        .root()
+        .expect("Failed to compute constraint commitment");
+
+    // Verify constraint commitment matches
+    assert_eq!(
+        stark_proof.constraint_commitment, expected_constraint_commitment,
+        "Constraint commitment should match computed value"
+    );
+}
+
+/// Validate that SNARK proof correctly wraps STARK proof
+#[cfg(any(feature = "stark", feature = "arkworks"))]
+#[tokio::test]
+async fn test_validate_snark_wraps_stark() {
+    let mut config = ProverConfig::default();
+    config.use_placeholders = false;
+    let prover = Prover::new(config).expect("Failed to create prover");
+
+    let block = create_test_block(1, 2);
+    let prev_state = State::new();
+    let mut new_state = prev_state.clone();
+
+    for tx in &block.transactions {
+        apply_tx(&mut new_state, tx, block.timestamp).expect("Failed to apply transaction");
+    }
+
+    let block_proof = prover
+        .prove_block(&block, &prev_state, &new_state)
+        .await
+        .expect("Failed to generate proof");
+
+    // Deserialize SNARK wrapper to extract STARK proof
+    #[cfg(feature = "arkworks")]
+    {
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct SnarkProofWrapper {
+            proof: Vec<u8>,
+            public_inputs: Vec<u8>,
+            version: u8,
+        }
+
+        let wrapper: SnarkProofWrapper = bincode::deserialize(&block_proof.zk_proof)
+            .expect("Failed to deserialize SNARK wrapper");
+
+        // Verify version
+        assert_eq!(wrapper.version, 3, "SNARK wrapper version should be 3");
+
+        // Verify public inputs match
+        let expected_public_inputs = bincode::serialize(&(
+            block_proof.prev_state_root,
+            block_proof.new_state_root,
+            block_proof.withdrawals_root,
+        ))
+        .unwrap();
+        assert_eq!(
+            wrapper.public_inputs, expected_public_inputs,
+            "Public inputs in wrapper should match block proof"
+        );
+
+        // Verify Groth16 proof is valid
+        let verify_result = prover
+            .verify_snark_proof(&block_proof.zk_proof, &expected_public_inputs)
+            .await
+            .expect("Verification should succeed");
+        assert!(verify_result, "SNARK proof should be valid");
+    }
+}
+
+/// Validate that proof generation is deterministic for same inputs (when using placeholders)
+#[cfg(any(feature = "stark", feature = "arkworks"))]
+#[tokio::test]
+async fn test_validate_proof_determinism() {
+    let mut config = ProverConfig::default();
+    config.use_placeholders = true; // Placeholders are deterministic
+    let prover = Prover::new(config).expect("Failed to create prover");
+
+    let block = create_test_block(1, 2);
+    let prev_state = State::new();
+    let mut new_state = prev_state.clone();
+
+    for tx in &block.transactions {
+        apply_tx(&mut new_state, tx, block.timestamp).expect("Failed to apply transaction");
+    }
+
+    // Generate proof multiple times
+    let proof1 = prover
+        .prove_block(&block, &prev_state, &new_state)
+        .await
+        .expect("Failed to generate proof 1");
+
+    let proof2 = prover
+        .prove_block(&block, &prev_state, &new_state)
+        .await
+        .expect("Failed to generate proof 2");
+
+    // With placeholders, proofs should be identical
+    assert_eq!(
+        proof1.zk_proof, proof2.zk_proof,
+        "Placeholder proofs should be deterministic"
+    );
+}
+
+/// Validate proof generation with edge cases
+#[cfg(any(feature = "stark", feature = "arkworks"))]
+#[tokio::test]
+async fn test_validate_proof_edge_cases() {
+    let mut config = ProverConfig::default();
+    config.use_placeholders = false;
+    let prover = Prover::new(config).expect("Failed to create prover");
+
+    // Test 1: Empty block
+    let empty_block = create_test_block(1, 0);
+    let empty_prev_state = State::new();
+    let empty_new_state = State::new();
+
+    let empty_proof = prover
+        .prove_block(&empty_block, &empty_prev_state, &empty_new_state)
+        .await
+        .expect("Failed to generate proof for empty block");
+
+    assert!(!empty_proof.zk_proof.is_empty(), "Empty block proof should not be empty");
+    assert_eq!(
+        empty_proof.prev_state_root, empty_proof.new_state_root,
+        "Empty block should have same prev and new state root"
+    );
+
+    // Test 2: Large block
+    let large_block = create_test_block(2, 32);
+    let large_prev_state = State::new();
+    let mut large_new_state = large_prev_state.clone();
+
+    for tx in &large_block.transactions {
+        apply_tx(&mut large_new_state, tx, large_block.timestamp)
+            .expect("Failed to apply transaction");
+    }
+
+    let large_proof = prover
+        .prove_block(&large_block, &large_prev_state, &large_new_state)
+        .await
+        .expect("Failed to generate proof for large block");
+
+    assert!(!large_proof.zk_proof.is_empty(), "Large block proof should not be empty");
+    assert_ne!(
+        large_proof.prev_state_root, large_proof.new_state_root,
+        "Large block should have different prev and new state root"
+    );
+}

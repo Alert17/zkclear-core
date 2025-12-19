@@ -85,6 +85,9 @@ impl KeyManager {
     fn generate_keys(&mut self) -> Result<(), ProverError> {
         // Create a dummy circuit to generate keys
         // The circuit structure is fixed, so we can use dummy values
+        // IMPORTANT: The circuit structure must match exactly when generating proofs
+        // - public_inputs: always 96 bytes (3 * 32 bytes for roots)
+        // - stark_proof: always at least 200 bytes (will be padded if smaller)
         let dummy_circuit = StarkProofVerifierCircuit {
             public_inputs: vec![0u8; 96], // 3 * 32 bytes for roots
             stark_proof: vec![0u8; 200],  // Dummy proof (minimum size for minimal STARK proof)
