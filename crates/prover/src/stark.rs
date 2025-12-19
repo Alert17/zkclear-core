@@ -1,7 +1,7 @@
 use crate::error::ProverError;
 
 /// STARK proof generator trait
-/// 
+///
 /// This trait allows for different STARK implementations (Winterfell, etc.)
 #[async_trait::async_trait]
 pub trait StarkProver: Send + Sync {
@@ -23,9 +23,13 @@ pub trait StarkProver: Send + Sync {
 }
 
 /// Placeholder STARK prover implementation
-/// 
-/// This is a placeholder that will be replaced with actual STARK implementation
-/// (Winterfell or another backend)
+///
+/// This is a placeholder implementation used when:
+/// - `use_placeholders=true` in ProverConfig (for testing)
+/// - `winterfell` feature is not enabled
+///
+/// In production, use `WinterfellStarkProver` by enabling the `winterfell` feature
+/// and setting `use_placeholders=false`.
 pub struct PlaceholderStarkProver;
 
 #[async_trait::async_trait]
@@ -37,8 +41,8 @@ impl StarkProver for PlaceholderStarkProver {
         _withdrawals_root: &[u8; 32],
         _block_data: &[u8],
     ) -> Result<Vec<u8>, ProverError> {
-        // TODO: Implement actual STARK proof generation
-        // For now, return placeholder proof
+        // Placeholder implementation: returns a dummy proof
+        // This is intentional for testing/development when real proof generation is not needed
         Ok(b"STARK_PROOF_PLACEHOLDER".to_vec())
     }
 
@@ -47,13 +51,14 @@ impl StarkProver for PlaceholderStarkProver {
         _proof: &[u8],
         _public_inputs: &[u8],
     ) -> Result<bool, ProverError> {
-        // TODO: Implement actual STARK proof verification
+        // Placeholder implementation: always returns true
+        // This is intentional for testing/development when real proof verification is not needed
         Ok(true)
     }
 }
 
 /// Winterfell-based STARK prover
-/// 
+///
 /// This uses Winterfell (from Polygon Zero) for generating STARK proofs
 /// Winterfell is a reliable, well-maintained STARK library available on crates.io
 #[cfg(feature = "winterfell")]
@@ -66,20 +71,21 @@ pub struct WinterfellStarkProver {
 impl WinterfellStarkProver {
     pub fn new() -> Self {
         use winterfell::ProofOptions;
-        
+
         // Create proof options with reasonable defaults
         // These can be customized based on security/performance requirements
+        // Note: fri_max_remainder_size must be one less than a power of two (e.g., 3, 7, 15, 31)
         let options = ProofOptions::new(
             28, // num_queries
             4,  // blowup_factor
             0,  // grinding_factor
             winterfell::FieldExtension::None,
-            8,  // fri_folding_factor
-            4,  // fri_max_remainder_size
+            8,                                  // fri_folding_factor
+            3, // fri_max_remainder_size (must be 2^n - 1, e.g., 3 = 2^2 - 1)
             winterfell::BatchingMethod::Linear, // constraint_batching
             winterfell::BatchingMethod::Linear, // query_batching
         );
-        
+
         Self {
             prover: std::sync::Mutex::new(crate::air::BlockTransitionProver::new(options.clone())),
             verifier: crate::air::BlockTransitionVerifier::new(options),
@@ -99,11 +105,12 @@ impl StarkProver for WinterfellStarkProver {
     ) -> Result<Vec<u8>, ProverError> {
         use crate::air::{BlockTransitionInputs, BlockTransitionPrivateInputs};
         use zkclear_types::Block;
-        
+
         // Deserialize block to extract metadata
-        let block: Block = bincode::deserialize(block_data)
-            .map_err(|e| ProverError::Serialization(format!("Failed to deserialize block: {}", e)))?;
-        
+        let block: Block = bincode::deserialize(block_data).map_err(|e| {
+            ProverError::Serialization(format!("Failed to deserialize block: {}", e))
+        })?;
+
         // Create public inputs
         let public_inputs = BlockTransitionInputs {
             prev_state_root: *prev_state_root,
@@ -112,22 +119,22 @@ impl StarkProver for WinterfellStarkProver {
             block_id: block.id,
             timestamp: block.timestamp,
         };
-        
+
         // Create private inputs
         let private_inputs = BlockTransitionPrivateInputs {
             transactions: block_data.to_vec(),
         };
-        
+
         // Generate proof using Winterfell
         // Use Mutex for interior mutability since prove requires &mut self
-        let mut prover = self.prover.lock().map_err(|e| ProverError::StarkProof(
-            format!("Failed to acquire prover lock: {}", e)
-        ))?;
+        let mut prover = self.prover.lock().map_err(|e| {
+            ProverError::StarkProof(format!("Failed to acquire prover lock: {}", e))
+        })?;
         let proof = prover.prove(public_inputs, private_inputs)?;
-        
+
         // Serialize proof to bytes using Winterfell's built-in serialization
         let proof_bytes = proof.to_bytes();
-        
+
         Ok(proof_bytes)
     }
 
@@ -138,17 +145,20 @@ impl StarkProver for WinterfellStarkProver {
     ) -> Result<bool, ProverError> {
         use crate::air::BlockTransitionInputs;
         use winterfell::Proof;
-        
+
         // Deserialize proof and public inputs
-        let proof = Proof::from_bytes(proof)
-            .map_err(|e| ProverError::Serialization(format!("Failed to deserialize Winterfell proof: {}", e)))?;
-        
-        let public_inputs: BlockTransitionInputs = bincode::deserialize(public_inputs)
-            .map_err(|e| ProverError::Serialization(format!("Failed to deserialize public inputs: {}", e)))?;
-        
+        let proof = Proof::from_bytes(proof).map_err(|e| {
+            ProverError::Serialization(format!("Failed to deserialize Winterfell proof: {}", e))
+        })?;
+
+        let public_inputs: BlockTransitionInputs =
+            bincode::deserialize(public_inputs).map_err(|e| {
+                ProverError::Serialization(format!("Failed to deserialize public inputs: {}", e))
+            })?;
+
         // Verify proof using Winterfell
         self.verifier.verify(&proof, &public_inputs)?;
-        
+
         Ok(true)
     }
 }

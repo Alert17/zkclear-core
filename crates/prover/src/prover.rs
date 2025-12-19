@@ -1,18 +1,16 @@
-use zkclear_state::State;
-use zkclear_types::{Block, BlockProof, Withdraw, WithdrawalProof, Address};
 use crate::error::ProverError;
-use crate::merkle::{MerkleTree, hash_withdrawal, verify_merkle_proof};
+use crate::merkle::{hash_withdrawal, verify_merkle_proof, MerkleTree};
 use crate::nullifier::generate_nullifier_from_withdrawal;
-use crate::stark::StarkProver;
 use crate::snark::SnarkProver;
+use crate::stark::StarkProver;
+use zkclear_state::State;
+use zkclear_types::{Address, Block, BlockProof, Withdraw, WithdrawalProof};
 
 /// Configuration for the ZK prover
 #[derive(Debug, Clone)]
 pub struct ProverConfig {
     /// Whether to use placeholder implementations (for testing)
     pub use_placeholders: bool,
-    /// Path to Plonky2 configuration (if using Plonky2)
-    pub plonky2_config_path: Option<String>,
     /// Path to directory for storing Groth16 keys (default: ./keys)
     pub groth16_keys_dir: Option<std::path::PathBuf>,
     /// Force regeneration of Groth16 keys even if they exist
@@ -23,7 +21,6 @@ impl Default for ProverConfig {
     fn default() -> Self {
         Self {
             use_placeholders: true,
-            plonky2_config_path: None,
             groth16_keys_dir: None,
             force_regenerate_keys: false,
         }
@@ -31,7 +28,7 @@ impl Default for ProverConfig {
 }
 
 /// Main ZK prover service
-/// 
+///
 /// This service coordinates STARK and SNARK proof generation
 pub struct Prover {
     stark_prover: Box<dyn StarkProver>,
@@ -59,13 +56,16 @@ impl Prover {
         } else {
             #[cfg(feature = "arkworks")]
             {
-                Box::new(crate::snark::ArkworksSnarkProver::new(
-                    config.groth16_keys_dir.clone(),
-                    config.force_regenerate_keys,
-                ).map_err(|e| {
-                    eprintln!("Failed to initialize ArkworksSnarkProver: {:?}", e);
-                    e
-                })?)
+                Box::new(
+                    crate::snark::ArkworksSnarkProver::new(
+                        config.groth16_keys_dir.clone(),
+                        config.force_regenerate_keys,
+                    )
+                    .map_err(|e| {
+                        eprintln!("Failed to initialize ArkworksSnarkProver: {:?}", e);
+                        e
+                    })?,
+                )
             }
             #[cfg(not(feature = "arkworks"))]
             {
@@ -80,7 +80,7 @@ impl Prover {
     }
 
     /// Generate a block proof (STARK + SNARK)
-    /// 
+    ///
     /// This generates a STARK proof for the block state transition,
     /// then wraps it in a SNARK for compact on-chain verification
     pub async fn prove_block(
@@ -99,18 +99,26 @@ impl Prover {
             .map_err(|e| ProverError::Serialization(format!("Failed to serialize block: {}", e)))?;
 
         // Generate STARK proof
-        let stark_proof = self.stark_prover.prove_block_transition(
-            &prev_state_root,
-            &new_state_root,
-            &withdrawals_root,
-            &block_data,
-        ).await?;
+        let stark_proof = self
+            .stark_prover
+            .prove_block_transition(
+                &prev_state_root,
+                &new_state_root,
+                &withdrawals_root,
+                &block_data,
+            )
+            .await?;
 
         // Wrap STARK proof in SNARK
-        let public_inputs = bincode::serialize(&(prev_state_root, new_state_root, withdrawals_root))
-            .map_err(|e| ProverError::Serialization(format!("Failed to serialize public inputs: {}", e)))?;
-        
-        let snark_proof = self.snark_prover.wrap_stark_in_snark(&stark_proof, &public_inputs).await?;
+        let public_inputs =
+            bincode::serialize(&(prev_state_root, new_state_root, withdrawals_root)).map_err(
+                |e| ProverError::Serialization(format!("Failed to serialize public inputs: {}", e)),
+            )?;
+
+        let snark_proof = self
+            .snark_prover
+            .wrap_stark_in_snark(&stark_proof, &public_inputs)
+            .await?;
 
         Ok(BlockProof {
             prev_state_root,
@@ -120,8 +128,21 @@ impl Prover {
         })
     }
 
+    /// Verify a SNARK proof
+    ///
+    /// This verifies a SNARK proof with the given public inputs
+    pub async fn verify_snark_proof(
+        &self,
+        proof: &[u8],
+        public_inputs: &[u8],
+    ) -> Result<bool, ProverError> {
+        self.snark_prover
+            .verify_snark_proof(proof, public_inputs)
+            .await
+    }
+
     /// Generate a withdrawal proof
-    /// 
+    ///
     /// This generates a Merkle proof for inclusion in withdrawals_root
     /// and a ZK proof for withdrawal validity
     pub async fn prove_withdrawal(
@@ -148,17 +169,27 @@ impl Prover {
             withdrawal.amount,
             withdrawal.chain_id,
         );
-        
+
         if !verify_merkle_proof(&leaf, &merkle_proof, withdrawals_root) {
-            return Err(ProverError::InvalidWithdrawalsRoot("Merkle proof verification failed".to_string()));
+            return Err(ProverError::InvalidWithdrawalsRoot(
+                "Merkle proof verification failed".to_string(),
+            ));
         }
 
         // Generate ZK proof for withdrawal validity
-        // For now, use placeholder (will be replaced with actual proof generation)
+        // NOTE: This is a placeholder implementation. In production, this should generate
+        // a proper ZK proof that verifies:
+        // 1. The withdrawal is valid (amount > 0, user has balance, etc.)
+        // 2. The nullifier is correctly computed
+        // 3. The Merkle proof is valid
+        // For now, return placeholder proof for MVP
         let zk_proof = b"WITHDRAWAL_PROOF_PLACEHOLDER".to_vec();
 
         Ok(WithdrawalProof {
-            merkle_proof: merkle_proof.iter().flat_map(|p| p.iter().copied()).collect(),
+            merkle_proof: merkle_proof
+                .iter()
+                .flat_map(|p| p.iter().copied())
+                .collect(),
             nullifier,
             zk_proof,
         })
@@ -166,30 +197,62 @@ impl Prover {
 
     /// Compute state root from state
     fn compute_state_root(&self, state: &State) -> Result<[u8; 32], ProverError> {
-        // TODO: Implement proper state root computation
-        // For now, use a placeholder hash
-        let state_bytes = bincode::serialize(state)
-            .map_err(|e| ProverError::Serialization(format!("Failed to serialize state: {}", e)))?;
-        
-        use sha2::{Sha256, Digest};
-        let mut hasher = Sha256::new();
-        hasher.update(&state_bytes);
-        Ok(hasher.finalize().into())
+        Self::compute_state_root_static(state)
+    }
+
+    /// Compute state root from state (static method for use in tests)
+    pub fn compute_state_root_static(state: &State) -> Result<[u8; 32], ProverError> {
+        // Use Merkle tree approach for proper state root computation
+        use crate::merkle::{hash_state_leaf, MerkleTree};
+
+        let mut tree = MerkleTree::new();
+
+        // Add all accounts as leaves
+        let mut account_ids: Vec<_> = state.accounts.keys().collect();
+        account_ids.sort();
+
+        for account_id in account_ids {
+            let account = state.accounts.get(account_id).ok_or_else(|| {
+                ProverError::StarkProof(format!("Account {} not found", account_id))
+            })?;
+
+            let account_bytes = bincode::serialize(account).map_err(|e| {
+                ProverError::Serialization(format!("Failed to serialize account: {}", e))
+            })?;
+
+            let leaf = hash_state_leaf(&account_bytes);
+            tree.add_leaf(leaf);
+        }
+
+        // Add all deals as leaves
+        let mut deal_ids: Vec<_> = state.deals.keys().collect();
+        deal_ids.sort();
+
+        for deal_id in deal_ids {
+            let deal = state
+                .deals
+                .get(deal_id)
+                .ok_or_else(|| ProverError::StarkProof(format!("Deal {} not found", deal_id)))?;
+
+            let deal_bytes = bincode::serialize(deal).map_err(|e| {
+                ProverError::Serialization(format!("Failed to serialize deal: {}", e))
+            })?;
+
+            let leaf = hash_state_leaf(&deal_bytes);
+            tree.add_leaf(leaf);
+        }
+
+        tree.root()
     }
 
     /// Compute withdrawals root from block
     fn compute_withdrawals_root(&self, block: &Block) -> Result<[u8; 32], ProverError> {
         let mut tree = MerkleTree::new();
-        
+
         // Extract withdrawals from block transactions
         for tx in &block.transactions {
             if let zkclear_types::TxPayload::Withdraw(w) = &tx.payload {
-                let leaf = hash_withdrawal(
-                    tx.from,
-                    w.asset_id,
-                    w.amount,
-                    w.chain_id,
-                );
+                let leaf = hash_withdrawal(tx.from, w.asset_id, w.amount, w.chain_id);
                 tree.add_leaf(leaf);
             }
         }
@@ -210,14 +273,9 @@ impl Prover {
         let mut current_index = 0;
         for tx in &block.transactions {
             if let zkclear_types::TxPayload::Withdraw(w) = &tx.payload {
-                let leaf = hash_withdrawal(
-                    tx.from,
-                    w.asset_id,
-                    w.amount,
-                    w.chain_id,
-                );
+                let leaf = hash_withdrawal(tx.from, w.asset_id, w.amount, w.chain_id);
                 tree.add_leaf(leaf);
-                
+
                 if current_index == withdrawal_index {
                     target_index = Some(tree.leaves.len() - 1);
                 }
@@ -229,9 +287,10 @@ impl Prover {
         let proof = if let Some(idx) = target_index {
             tree.proof(idx)?
         } else {
-            return Err(ProverError::InvalidWithdrawalsRoot(
-                format!("Withdrawal index {} not found", withdrawal_index)
-            ));
+            return Err(ProverError::InvalidWithdrawalsRoot(format!(
+                "Withdrawal index {} not found",
+                withdrawal_index
+            )));
         };
 
         Ok((proof, root))
@@ -263,4 +322,3 @@ mod tests {
         assert!(proof.is_ok());
     }
 }
-

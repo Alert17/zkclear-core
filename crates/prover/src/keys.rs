@@ -1,8 +1,12 @@
 //! Key management for Groth16 proving and verifying keys
-//! 
+//!
 //! This module handles generation, serialization, and persistence of
 //! Groth16 proving and verifying keys to avoid expensive regeneration.
 
+#[cfg(feature = "arkworks")]
+use crate::circuit::StarkProofVerifierCircuit;
+#[cfg(feature = "arkworks")]
+use crate::error::ProverError;
 #[cfg(feature = "arkworks")]
 use ark_bn254::Bn254;
 #[cfg(feature = "arkworks")]
@@ -14,13 +18,9 @@ use ark_std::rand::rngs::StdRng;
 #[cfg(feature = "arkworks")]
 use ark_std::rand::SeedableRng;
 #[cfg(feature = "arkworks")]
-use crate::circuit::StarkProofVerifierCircuit;
-#[cfg(feature = "arkworks")]
-use crate::error::ProverError;
+use std::fs;
 #[cfg(feature = "arkworks")]
 use std::path::{Path, PathBuf};
-#[cfg(feature = "arkworks")]
-use std::fs;
 
 /// Default directory for storing Groth16 keys
 #[cfg(feature = "arkworks")]
@@ -91,7 +91,7 @@ impl KeyManager {
         let mut seed = [0u8; 32];
         // Use a fixed seed for reproducibility (can be changed for production)
         seed[0..8].copy_from_slice(b"ZKClearPK"); // Fixed seed for key generation
-        
+
         let mut rng = StdRng::from_seed(seed);
 
         // Generate proving key
@@ -112,8 +112,9 @@ impl KeyManager {
     /// Save keys to disk
     fn save_keys(&self) -> Result<(), ProverError> {
         // Create keys directory if it doesn't exist
-        fs::create_dir_all(&self.keys_dir)
-            .map_err(|e| ProverError::Serialization(format!("Failed to create keys directory: {}", e)))?;
+        fs::create_dir_all(&self.keys_dir).map_err(|e| {
+            ProverError::Serialization(format!("Failed to create keys directory: {}", e))
+        })?;
 
         let proving_key_path = self.keys_dir.join(PROVING_KEY_FILE);
         let verifying_key_path = self.keys_dir.join(VERIFYING_KEY_FILE);
@@ -122,20 +123,26 @@ impl KeyManager {
         if let Some(ref pk) = self.proving_key {
             let mut pk_bytes = Vec::new();
             pk.serialize_with_mode(&mut pk_bytes, Compress::Yes)
-                .map_err(|e| ProverError::Serialization(format!("Failed to serialize proving key: {}", e)))?;
-            
-            fs::write(&proving_key_path, &pk_bytes)
-                .map_err(|e| ProverError::Serialization(format!("Failed to write proving key: {}", e)))?;
+                .map_err(|e| {
+                    ProverError::Serialization(format!("Failed to serialize proving key: {}", e))
+                })?;
+
+            fs::write(&proving_key_path, &pk_bytes).map_err(|e| {
+                ProverError::Serialization(format!("Failed to write proving key: {}", e))
+            })?;
         }
 
         // Save verifying key
         if let Some(ref vk) = self.verifying_key {
             let mut vk_bytes = Vec::new();
             vk.serialize_with_mode(&mut vk_bytes, Compress::Yes)
-                .map_err(|e| ProverError::Serialization(format!("Failed to serialize verifying key: {}", e)))?;
-            
-            fs::write(&verifying_key_path, &vk_bytes)
-                .map_err(|e| ProverError::Serialization(format!("Failed to write verifying key: {}", e)))?;
+                .map_err(|e| {
+                    ProverError::Serialization(format!("Failed to serialize verifying key: {}", e))
+                })?;
+
+            fs::write(&verifying_key_path, &vk_bytes).map_err(|e| {
+                ProverError::Serialization(format!("Failed to write verifying key: {}", e))
+            })?;
         }
 
         Ok(())
@@ -147,26 +154,29 @@ impl KeyManager {
         let verifying_key_path = self.keys_dir.join(VERIFYING_KEY_FILE);
 
         // Load proving key
-        let pk_bytes = fs::read(&proving_key_path)
-            .map_err(|e| ProverError::Serialization(format!("Failed to read proving key: {}", e)))?;
-        
-        let pk = ProvingKey::<Bn254>::deserialize_with_mode(
-            &pk_bytes[..],
-            Compress::Yes,
-            Validate::Yes,
-        )
-        .map_err(|e| ProverError::Serialization(format!("Failed to deserialize proving key: {}", e)))?;
+        let pk_bytes = fs::read(&proving_key_path).map_err(|e| {
+            ProverError::Serialization(format!("Failed to read proving key: {}", e))
+        })?;
+
+        let pk =
+            ProvingKey::<Bn254>::deserialize_with_mode(&pk_bytes[..], Compress::Yes, Validate::Yes)
+                .map_err(|e| {
+                    ProverError::Serialization(format!("Failed to deserialize proving key: {}", e))
+                })?;
 
         // Load verifying key
-        let vk_bytes = fs::read(&verifying_key_path)
-            .map_err(|e| ProverError::Serialization(format!("Failed to read verifying key: {}", e)))?;
-        
+        let vk_bytes = fs::read(&verifying_key_path).map_err(|e| {
+            ProverError::Serialization(format!("Failed to read verifying key: {}", e))
+        })?;
+
         let vk = VerifyingKey::<Bn254>::deserialize_with_mode(
             &vk_bytes[..],
             Compress::Yes,
             Validate::Yes,
         )
-        .map_err(|e| ProverError::Serialization(format!("Failed to deserialize verifying key: {}", e)))?;
+        .map_err(|e| {
+            ProverError::Serialization(format!("Failed to deserialize verifying key: {}", e))
+        })?;
 
         self.proving_key = Some(pk);
         self.verifying_key = Some(vk);
@@ -176,13 +186,15 @@ impl KeyManager {
 
     /// Get the proving key (must be loaded first)
     pub fn proving_key(&self) -> Result<&ProvingKey<Bn254>, ProverError> {
-        self.proving_key.as_ref()
+        self.proving_key
+            .as_ref()
             .ok_or_else(|| ProverError::SnarkProof("Proving key not loaded".to_string()))
     }
 
     /// Get the verifying key (must be loaded first)
     pub fn verifying_key(&self) -> Result<&VerifyingKey<Bn254>, ProverError> {
-        self.verifying_key.as_ref()
+        self.verifying_key
+            .as_ref()
             .ok_or_else(|| ProverError::SnarkProof("Verifying key not loaded".to_string()))
     }
 
@@ -191,4 +203,3 @@ impl KeyManager {
         &self.keys_dir
     }
 }
-

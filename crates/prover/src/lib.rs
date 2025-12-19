@@ -1,9 +1,9 @@
+pub mod error;
 pub mod merkle;
 pub mod nullifier;
 pub mod prover;
-pub mod stark;
 pub mod snark;
-pub mod error;
+pub mod stark;
 
 #[cfg(feature = "winterfell")]
 pub mod air;
@@ -17,6 +17,9 @@ pub mod keys;
 #[cfg(feature = "winterfell")]
 pub mod stark_proof;
 
-pub use prover::{Prover, ProverConfig};
-pub use error::ProverError;
+#[cfg(test)]
+#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+mod tests;
 
+pub use error::ProverError;
+pub use prover::{Prover, ProverConfig};

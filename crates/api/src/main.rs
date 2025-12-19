@@ -3,9 +3,9 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::time::{interval, Duration};
 use zkclear_api::{create_router, ApiState};
+use zkclear_prover::{Prover, ProverConfig};
 use zkclear_sequencer::Sequencer;
 use zkclear_sequencer::SequencerError;
-use zkclear_prover::{Prover, ProverConfig};
 #[cfg(not(feature = "rocksdb"))]
 use zkclear_storage::InMemoryStorage;
 #[cfg(feature = "rocksdb")]
@@ -114,7 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(Arc::new(p))
         }
         Err(e) => {
-            eprintln!("Warning: Failed to initialize prover: {:?}. Continuing without proof generation.", e);
+            eprintln!(
+                "Warning: Failed to initialize prover: {:?}. Continuing without proof generation.",
+                e
+            );
             None
         }
     };
@@ -123,13 +126,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Initializing sequencer with storage...");
     let mut sequencer = Sequencer::with_storage_arc(storage.clone())
         .map_err(|e| format!("Failed to initialize sequencer with storage: {:?}", e))?;
-    
+
     // Set prover if available
     if let Some(ref prover) = prover {
         sequencer = sequencer.with_prover(Arc::clone(prover));
         println!("Prover attached to sequencer");
     }
-    
+
     let sequencer = Arc::new(sequencer);
 
     println!("Sequencer initialized with storage");

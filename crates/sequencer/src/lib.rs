@@ -3,11 +3,11 @@ mod validation;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use zkclear_prover::{Prover, ProverConfig};
 use zkclear_state::State;
 use zkclear_stf::{apply_block, StfError};
 use zkclear_storage::Storage;
 use zkclear_types::{Block, BlockId, Tx};
-use zkclear_prover::{Prover, ProverConfig};
 
 use config::{DEFAULT_MAX_QUEUE_SIZE, DEFAULT_MAX_TXS_PER_BLOCK, DEFAULT_SNAPSHOT_INTERVAL};
 use validation::{validate_tx, ValidationError};
@@ -69,8 +69,9 @@ impl Sequencer {
 
     /// Set prover configuration (will create prover internally)
     pub fn with_prover_config(mut self, config: ProverConfig) -> Result<Self, SequencerError> {
-        let prover = Prover::new(config)
-            .map_err(|e| SequencerError::ProverError(format!("Failed to create prover: {:?}", e)))?;
+        let prover = Prover::new(config).map_err(|e| {
+            SequencerError::ProverError(format!("Failed to create prover: {:?}", e))
+        })?;
         self.prover = Some(Arc::new(prover));
         Ok(self)
     }
@@ -233,17 +234,17 @@ impl Sequencer {
         // Calculate state roots and withdrawals root
         // Note: prev_state_root is computed but not used directly here (used in proof generation)
         let _prev_state_root = self.compute_state_root(&prev_state)?;
-        
+
         // Apply transactions to a copy of state to get new state
         let mut new_state = prev_state.clone();
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         apply_block(&mut new_state, &transactions, timestamp)
             .map_err(SequencerError::ExecutionFailed)?;
-        
+
         let new_state_root = self.compute_state_root(&new_state)?;
         let withdrawals_root = self.compute_withdrawals_root(&transactions)?;
 
@@ -312,13 +313,17 @@ impl Sequencer {
             })?;
 
         rt_handle.block_on(async {
-            let block_proof = prover.prove_block(block, prev_state, new_state)
+            let block_proof = prover
+                .prove_block(block, prev_state, new_state)
                 .await
-                .map_err(|e| SequencerError::ProverError(format!("Proof generation failed: {:?}", e)))?;
-            
+                .map_err(|e| {
+                    SequencerError::ProverError(format!("Proof generation failed: {:?}", e))
+                })?;
+
             // Serialize the proof
-            bincode::serialize(&block_proof.zk_proof)
-                .map_err(|e| SequencerError::ProverError(format!("Failed to serialize proof: {}", e)))
+            bincode::serialize(&block_proof.zk_proof).map_err(|e| {
+                SequencerError::ProverError(format!("Failed to serialize proof: {}", e))
+            })
         })
     }
 
@@ -326,10 +331,11 @@ impl Sequencer {
     fn compute_state_root(&self, _state: &State) -> Result<[u8; 32], SequencerError> {
         // Use prover's compute_state_root if available, otherwise use simple hash
         // For now, use simple hash (same logic as Prover's placeholder)
-        let state_bytes = bincode::serialize(_state)
-            .map_err(|e| SequencerError::StorageError(format!("Failed to serialize state: {}", e)))?;
-        
-        use sha2::{Sha256, Digest};
+        let state_bytes = bincode::serialize(_state).map_err(|e| {
+            SequencerError::StorageError(format!("Failed to serialize state: {}", e))
+        })?;
+
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(&state_bytes);
         Ok(hasher.finalize().into())
@@ -337,24 +343,20 @@ impl Sequencer {
 
     /// Compute withdrawals root from transactions
     fn compute_withdrawals_root(&self, transactions: &[Tx]) -> Result<[u8; 32], SequencerError> {
-        use zkclear_prover::merkle::{MerkleTree, hash_withdrawal};
-        
+        use zkclear_prover::merkle::{hash_withdrawal, MerkleTree};
+
         let mut tree = MerkleTree::new();
-        
+
         for tx in transactions {
             if let zkclear_types::TxPayload::Withdraw(w) = &tx.payload {
-                let leaf = hash_withdrawal(
-                    tx.from,
-                    w.asset_id,
-                    w.amount,
-                    w.chain_id,
-                );
+                let leaf = hash_withdrawal(tx.from, w.asset_id, w.amount, w.chain_id);
                 tree.add_leaf(leaf);
             }
         }
 
-        tree.root()
-            .map_err(|e| SequencerError::ProverError(format!("Failed to compute withdrawals root: {:?}", e)))
+        tree.root().map_err(|e| {
+            SequencerError::ProverError(format!("Failed to compute withdrawals root: {:?}", e))
+        })
     }
 
     pub fn execute_block(&self, block: Block) -> Result<(), SequencerError> {
@@ -422,7 +424,10 @@ impl Sequencer {
     }
 
     /// Build and execute block with optional proof generation
-    pub fn build_and_execute_block_with_proof(&self, generate_proof: bool) -> Result<Block, SequencerError> {
+    pub fn build_and_execute_block_with_proof(
+        &self,
+        generate_proof: bool,
+    ) -> Result<Block, SequencerError> {
         let block = self.build_block_with_proof(generate_proof)?;
         self.execute_block(block.clone())?;
         Ok(block)

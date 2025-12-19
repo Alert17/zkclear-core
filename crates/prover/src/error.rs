@@ -26,4 +26,3 @@ pub enum ProverError {
     #[error("Internal error: {0}")]
     Internal(String),
 }
-

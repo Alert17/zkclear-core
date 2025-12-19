@@ -1,8 +1,8 @@
-use sha3::{Keccak256, Digest};
+use sha3::{Digest, Keccak256};
 use zkclear_types::{Address, AssetId, ChainId};
 
 /// Generate a nullifier for a withdrawal to prevent double-spending
-/// 
+///
 /// The nullifier is computed as: keccak256(user || asset_id || amount || chain_id || secret)
 /// where secret is a user-specific secret that should be kept private
 pub fn generate_nullifier(
@@ -56,4 +56,3 @@ mod tests {
         assert_ne!(nullifier1, nullifier3);
     }
 }
-
