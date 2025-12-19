@@ -130,12 +130,33 @@ impl StarkProver for WinterfellStarkProver {
         let mut prover = self.prover.lock().map_err(|e| {
             ProverError::StarkProof(format!("Failed to acquire prover lock: {}", e))
         })?;
-        let proof = prover.prove(public_inputs, private_inputs)?;
+        let (proof, trace_info) = prover.prove(public_inputs, private_inputs)?;
 
-        // Serialize proof to bytes using Winterfell's built-in serialization
+        // Serialize proof and trace_info together
+        // This allows proper verification later
+        use bincode;
+        
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct StarkProofWithTraceInfo {
+            proof_bytes: Vec<u8>,
+            trace_width: usize,
+            trace_length: usize,
+            version: u8,
+        }
+        
         let proof_bytes = proof.to_bytes();
+        let wrapper = StarkProofWithTraceInfo {
+            proof_bytes,
+            trace_width: trace_info.main_trace_width(),
+            trace_length: trace_info.length(),
+            version: 1, // Version 1 for proof with trace_info
+        };
+        
+        let serialized = bincode::serialize(&wrapper).map_err(|e| {
+            ProverError::Serialization(format!("Failed to serialize proof with trace_info: {}", e))
+        })?;
 
-        Ok(proof_bytes)
+        Ok(serialized)
     }
 
     async fn verify_stark_proof(
