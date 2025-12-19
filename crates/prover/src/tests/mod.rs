@@ -8,17 +8,17 @@
 //! - Validation of generated proofs
 //! - Testing with different block sizes
 
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 mod stark_tests;
 
 #[cfg(feature = "arkworks")]
 mod snark_tests;
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 mod integration_tests;
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 mod validation_tests;
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 mod performance_tests;

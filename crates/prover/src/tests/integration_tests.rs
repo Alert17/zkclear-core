@@ -2,27 +2,27 @@
 //!
 //! Tests the complete flow: block creation → proof generation → verification
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use crate::prover::{Prover, ProverConfig};
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use bincode;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_state::State;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_stf::apply_tx;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_types::Block;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_types::{Address, BlockProof, Tx, TxPayload};
 
 /// Helper to create a test block
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 fn create_test_block(id: u64, num_txs: usize) -> Block {
     create_test_block_with_offset(id, num_txs, 0)
 }
 
 /// Helper to create a test block with address offset
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 fn create_test_block_with_offset(id: u64, num_txs: usize, address_offset: usize) -> Block {
     use zkclear_types::{Deposit, TxKind};
 
@@ -57,9 +57,9 @@ fn create_test_block_with_offset(id: u64, num_txs: usize, address_offset: usize)
     }
 }
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
+
 async fn test_e2e_block_creation_to_proof_generation() {
     // Create prover
     let mut config = ProverConfig::default();
@@ -115,9 +115,9 @@ async fn test_e2e_block_creation_to_proof_generation() {
     }
 }
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
+
 async fn test_e2e_multiple_blocks_sequential() {
     let mut config = ProverConfig::default();
     config.use_placeholders = false;
@@ -159,9 +159,9 @@ async fn test_e2e_multiple_blocks_sequential() {
     }
 }
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
+
 async fn test_e2e_proof_consistency() {
     let mut config = ProverConfig::default();
     config.use_placeholders = false;
@@ -218,7 +218,7 @@ async fn test_e2e_proof_consistency() {
 
 /// End-to-end test with placeholder provers
 /// This tests the full flow structure without requiring real proof generation
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_e2e_flow_structure_with_placeholders() {
     // Use placeholder provers to test flow structure
@@ -293,7 +293,7 @@ async fn test_e2e_flow_structure_with_placeholders() {
 }
 
 /// Test state root computation consistency
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_e2e_state_root_computation() {
     let mut config = ProverConfig::default();
@@ -326,7 +326,7 @@ async fn test_e2e_state_root_computation() {
 }
 
 /// Test proof serialization/deserialization
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_e2e_proof_serialization() {
     let mut config = ProverConfig::default();
@@ -363,7 +363,7 @@ async fn test_e2e_proof_serialization() {
 }
 
 /// Test multiple blocks with state transitions
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_e2e_multiple_blocks_state_transitions() {
     let mut config = ProverConfig::default();

@@ -1,24 +1,22 @@
-//! Tests for STARK proof generation using Winterfell
+//! Tests for STARK proof generation using minimal STARK prover
 
-#[cfg(feature = "winterfell")]
-use crate::air::BlockTransitionInputs;
-#[cfg(feature = "winterfell")]
-use crate::stark::{StarkProver, WinterfellStarkProver};
-#[cfg(feature = "winterfell")]
-use crate::stark_proof::DeserializedStarkProof;
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
+use crate::air::{BlockTransitionInputs, BlockTransitionPrivateInputs};
+#[cfg(feature = "stark")]
+use crate::stark::{StarkProver, MinimalStarkProver};
+#[cfg(feature = "stark")]
 use bincode;
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 use zkclear_state::State;
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 use zkclear_stf::apply_tx;
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 use zkclear_types::Block;
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 use zkclear_types::{Address, Tx, TxPayload};
 
 /// Helper function to create a test block with transactions
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 fn create_test_block(id: u64, num_txs: usize) -> Block {
     use zkclear_types::{Deposit, TxKind};
 
@@ -28,7 +26,7 @@ fn create_test_block(id: u64, num_txs: usize) -> Block {
         transactions.push(Tx {
             id: i as u64,
             from: Address::from([i as u8; 20]),
-            nonce: i as u64,
+            nonce: 0, // Each address is new, so nonce starts at 0
             kind: TxKind::Deposit,
             payload: TxPayload::Deposit(Deposit {
                 tx_hash: [i as u8; 32],
@@ -52,13 +50,13 @@ fn create_test_block(id: u64, num_txs: usize) -> Block {
 }
 
 /// Helper function to create a test state
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 fn create_test_state() -> State {
     State::new()
 }
 
 /// Helper function to apply transactions to state and compute new state
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 fn apply_transactions_to_state(
     state: &mut State,
     block: &Block,
@@ -74,11 +72,10 @@ fn apply_transactions_to_state(
     Ok(new_state)
 }
 
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with empty blocks
 async fn test_stark_proof_generation_empty_block() {
-    let prover = WinterfellStarkProver::new();
+    let prover = MinimalStarkProver::new();
     let block = create_test_block(0, 0);
     let prev_state = create_test_state();
     let new_state = create_test_state();
@@ -115,8 +112,8 @@ async fn test_stark_proof_generation_empty_block() {
         "Proof should have reasonable size (at least 100 bytes)"
     );
 
-    // Deserialize and validate proof structure
-    let expected_public_inputs = BlockTransitionInputs {
+    // Verify proof using verifier
+    let public_inputs = BlockTransitionInputs {
         prev_state_root,
         new_state_root,
         withdrawals_root,
@@ -124,35 +121,20 @@ async fn test_stark_proof_generation_empty_block() {
         timestamp: block.timestamp,
     };
 
-    let deserialized = DeserializedStarkProof::from_bytes(&proof, &expected_public_inputs)
-        .expect("Failed to deserialize proof");
+    let public_inputs_bytes =
+        bincode::serialize(&public_inputs).expect("Failed to serialize public inputs");
+    let verify_result = prover
+        .verify_stark_proof(&proof, &public_inputs_bytes)
+        .await;
 
-    assert!(
-        deserialized.verify_structure(),
-        "Proof structure should be valid"
-    );
-    assert!(
-        deserialized.verify_commitments(),
-        "Commitments should be valid"
-    );
-
-    // For empty blocks, public inputs extraction might use fallback
-    // So we check that at least the structure is valid
-    // In production, we'd verify public inputs more strictly
-    if !deserialized.verify_public_inputs(&expected_public_inputs) {
-        // If verification fails, check if it's due to extraction issues
-        // For now, we'll accept this as long as structure is valid
-        eprintln!("Warning: Public inputs verification failed, but proof structure is valid");
-        eprintln!("Expected: {:?}", expected_public_inputs);
-        eprintln!("Got: {:?}", deserialized.public_inputs);
-    }
+    assert!(verify_result.is_ok(), "Proof verification should succeed");
+    assert!(verify_result.unwrap(), "Proof should be valid");
 }
 
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with single transaction blocks
 async fn test_stark_proof_generation_single_transaction() {
-    let prover = WinterfellStarkProver::new();
+    let prover = MinimalStarkProver::new();
     let block = create_test_block(1, 1);
     let mut prev_state = create_test_state();
     let new_state =
@@ -179,7 +161,8 @@ async fn test_stark_proof_generation_single_transaction() {
 
     assert!(
         result.is_ok(),
-        "STARK proof generation should succeed for single transaction"
+        "STARK proof generation should succeed for single transaction. Error: {:?}",
+        result.as_ref().err()
     );
     let proof = result.unwrap();
 
@@ -206,11 +189,10 @@ async fn test_stark_proof_generation_single_transaction() {
     assert!(verify_result.unwrap(), "Proof should be valid");
 }
 
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with multiple transaction blocks
 async fn test_stark_proof_generation_multiple_transactions() {
-    let prover = WinterfellStarkProver::new();
+    let prover = MinimalStarkProver::new();
 
     for num_txs in [2, 4, 8, 16] {
         let block = create_test_block(num_txs as u64, num_txs);
@@ -275,10 +257,10 @@ async fn test_stark_proof_generation_multiple_transactions() {
     }
 }
 
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 #[tokio::test]
 async fn test_stark_proof_verification_fails_with_wrong_public_inputs() {
-    let prover = WinterfellStarkProver::new();
+    let prover = MinimalStarkProver::new();
     let block = create_test_block(1, 1);
     let mut prev_state = create_test_state();
     let new_state =

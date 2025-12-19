@@ -91,8 +91,6 @@ async fn test_snark_circuit_constraints() {
     let circuit = StarkProofVerifierCircuit {
         public_inputs: vec![0u8; 96],
         stark_proof: b"TEST_PROOF".to_vec(),
-        #[cfg(feature = "winterfell")]
-        deserialized_proof: None,
     };
 
     // Generate constraints

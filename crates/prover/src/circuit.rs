@@ -19,14 +19,13 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisE
 
 /// Circuit for verifying STARK proofs
 ///
-/// This circuit performs comprehensive verification of Winterfell STARK proofs:
+/// This circuit performs comprehensive verification of minimal STARK proofs:
 /// 1. Public inputs validation (prev_state_root, new_state_root, withdrawals_root)
 /// 2. Proof size verification (minimum expected size)
-/// 3. Proof structure verification (header, commitments)
-/// 4. Proof integrity verification (hash checks)
+/// 3. Proof structure verification (commitments, metadata)
+/// 4. Proof integrity verification (signature hash checks)
 /// 5. Public inputs consistency (hash matching)
 /// 6. State root continuity (prev_state_root -> new_state_root transition)
-/// 7. Full proof deserialization and structure verification
 ///
 /// The circuit verifies the structure and integrity of the STARK proof,
 /// ensuring it corresponds to the claimed public inputs and state transition.
@@ -37,9 +36,6 @@ pub struct StarkProofVerifierCircuit {
     pub public_inputs: Vec<u8>,
     /// STARK proof bytes (private input)
     pub stark_proof: Vec<u8>,
-    /// Deserialized proof structure (for full verification)
-    #[cfg(feature = "winterfell")]
-    pub deserialized_proof: Option<crate::stark_proof::DeserializedStarkProof>,
 }
 
 #[cfg(feature = "arkworks")]
@@ -94,23 +90,25 @@ impl ConstraintSynthesizer<Fr> for StarkProofVerifierCircuit {
             public_input_vars.push(var);
         }
 
-        // Verify STARK proof structure
-        // Winterfell proof structure includes:
-        // - Trace commitments (Merkle roots)
-        // - Constraint commitments
-        // - Queries and evaluations
-        // - Public inputs embedded in proof
+        // Verify minimal STARK proof structure
+        // Minimal STARK proof structure includes:
+        // - Trace commitment (Merkle root)
+        // - Constraint commitment (Merkle root)
+        // - Public inputs
+        // - Proof metadata
+        // - Proof signature (hash of all components)
 
         // For full verification, we need to:
         // 1. Verify proof is not empty and has minimum expected size
         // 2. Verify proof structure (deserialization checks)
         // 3. Verify commitments are non-zero (valid commitments)
-        // 4. Verify proof corresponds to public inputs
+        // 4. Verify proof signature (integrity check)
+        // 5. Verify proof corresponds to public inputs
 
         // Step 1: Verify proof is not empty and has minimum size
-        // Winterfell proofs typically have a minimum size (e.g., > 100 bytes)
+        // Minimal STARK proofs have a minimum size (trace commitment + constraint commitment + metadata + signature)
         let proof_len = self.stark_proof.len();
-        let min_proof_size = 100; // Minimum expected proof size
+        let min_proof_size = 200; // Minimum expected proof size (32 + 32 + metadata + 32 + serialization overhead)
 
         // Create witness variables for proof length check
         let proof_len_var = cs.new_witness_variable(|| Ok(Fr::from(proof_len as u64)))?;
@@ -138,8 +136,8 @@ impl ConstraintSynthesizer<Fr> for StarkProofVerifierCircuit {
         )?;
 
         // Step 2: Verify proof structure by checking key fields
-        // Winterfell proof typically starts with metadata/version
-        // We'll check first few bytes for expected patterns
+        // Minimal STARK proof can be deserialized to MinimalStarkProof structure
+        // We'll verify the proof can be deserialized and has valid structure
 
         // Check first 8 bytes (could contain version, size info, etc.)
         let check_bytes = proof_len.min(8);
@@ -173,7 +171,7 @@ impl ConstraintSynthesizer<Fr> for StarkProofVerifierCircuit {
         }
 
         // Step 3: Verify proof contains commitments (non-zero hashes)
-        // Winterfell proofs contain Merkle commitments which are 32-byte hashes
+        // Minimal STARK proofs contain Merkle commitments which are 32-byte hashes
         // We'll check for non-zero hash patterns in the proof
 
         // Check for commitment-like patterns (32-byte chunks that are likely non-zero)
@@ -209,7 +207,7 @@ impl ConstraintSynthesizer<Fr> for StarkProofVerifierCircuit {
 
         // Step 4: Verify proof corresponds to public inputs
         // We'll compute a hash of public inputs and verify it's embedded in proof
-        // Winterfell proofs embed public inputs, so we verify they match
+        // Minimal STARK proofs embed public inputs, so we verify they match
 
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();

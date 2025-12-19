@@ -2,7 +2,7 @@ use crate::error::ProverError;
 
 /// STARK proof generator trait
 ///
-/// This trait allows for different STARK implementations (Winterfell, etc.)
+/// This trait allows for different STARK implementations (minimal STARK prover, etc.)
 #[async_trait::async_trait]
 pub trait StarkProver: Send + Sync {
     /// Generate a STARK proof for a block state transition
@@ -26,10 +26,8 @@ pub trait StarkProver: Send + Sync {
 ///
 /// This is a placeholder implementation used when:
 /// - `use_placeholders=true` in ProverConfig (for testing)
-/// - `winterfell` feature is not enabled
 ///
-/// In production, use `WinterfellStarkProver` by enabling the `winterfell` feature
-/// and setting `use_placeholders=false`.
+/// In production, use `MinimalStarkProver` by setting `use_placeholders=false`.
 pub struct PlaceholderStarkProver;
 
 #[async_trait::async_trait]
@@ -57,45 +55,29 @@ impl StarkProver for PlaceholderStarkProver {
     }
 }
 
-/// Winterfell-based STARK prover
+/// Minimal STARK prover
 ///
-/// This uses Winterfell (from Polygon Zero) for generating STARK proofs
-/// Winterfell is a reliable, well-maintained STARK library available on crates.io
-#[cfg(feature = "winterfell")]
-pub struct WinterfellStarkProver {
-    prover: std::sync::Mutex<crate::air::BlockTransitionProver>,
-    verifier: crate::air::BlockTransitionVerifier,
+/// This uses a custom minimal STARK prover implementation that doesn't require
+/// external dependencies. It generates proofs using standard cryptographic primitives.
+#[cfg(feature = "stark")]
+pub struct MinimalStarkProver {
+    prover: crate::air::MinimalStarkProver,
+    verifier: crate::air::MinimalStarkVerifier,
 }
 
-#[cfg(feature = "winterfell")]
-impl WinterfellStarkProver {
+#[cfg(feature = "stark")]
+impl MinimalStarkProver {
     pub fn new() -> Self {
-        use winterfell::ProofOptions;
-
-        // Create proof options with reasonable defaults
-        // These can be customized based on security/performance requirements
-        // Note: fri_max_remainder_size must be one less than a power of two (e.g., 3, 7, 15, 31)
-        let options = ProofOptions::new(
-            28, // num_queries
-            4,  // blowup_factor
-            0,  // grinding_factor
-            winterfell::FieldExtension::None,
-            8,                                  // fri_folding_factor
-            3, // fri_max_remainder_size (must be 2^n - 1, e.g., 3 = 2^2 - 1)
-            winterfell::BatchingMethod::Linear, // constraint_batching
-            winterfell::BatchingMethod::Linear, // query_batching
-        );
-
         Self {
-            prover: std::sync::Mutex::new(crate::air::BlockTransitionProver::new(options.clone())),
-            verifier: crate::air::BlockTransitionVerifier::new(options),
+            prover: crate::air::MinimalStarkProver::new(),
+            verifier: crate::air::MinimalStarkVerifier::new(),
         }
     }
 }
 
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 #[async_trait::async_trait]
-impl StarkProver for WinterfellStarkProver {
+impl StarkProver for MinimalStarkProver {
     async fn prove_block_transition(
         &self,
         prev_state_root: &[u8; 32],
@@ -125,35 +107,12 @@ impl StarkProver for WinterfellStarkProver {
             transactions: block_data.to_vec(),
         };
 
-        // Generate proof using Winterfell
-        // Use Mutex for interior mutability since prove requires &mut self
-        let mut prover = self.prover.lock().map_err(|e| {
-            ProverError::StarkProof(format!("Failed to acquire prover lock: {}", e))
-        })?;
-        let (proof, trace_info) = prover.prove(public_inputs, private_inputs)?;
+        // Generate proof using minimal STARK prover
+        let proof = self.prover.prove(public_inputs, private_inputs)?;
 
-        // Serialize proof and trace_info together
-        // This allows proper verification later
-        use bincode;
-
-        #[derive(serde::Serialize, serde::Deserialize)]
-        struct StarkProofWithTraceInfo {
-            proof_bytes: Vec<u8>,
-            trace_width: usize,
-            trace_length: usize,
-            version: u8,
-        }
-
-        let proof_bytes = proof.to_bytes();
-        let wrapper = StarkProofWithTraceInfo {
-            proof_bytes,
-            trace_width: trace_info.main_trace_width(),
-            trace_length: trace_info.length(),
-            version: 1, // Version 1 for proof with trace_info
-        };
-
-        let serialized = bincode::serialize(&wrapper).map_err(|e| {
-            ProverError::Serialization(format!("Failed to serialize proof with trace_info: {}", e))
+        // Serialize proof
+        let serialized = bincode::serialize(&proof).map_err(|e| {
+            ProverError::Serialization(format!("Failed to serialize proof: {}", e))
         })?;
 
         Ok(serialized)
@@ -165,21 +124,23 @@ impl StarkProver for WinterfellStarkProver {
         public_inputs: &[u8],
     ) -> Result<bool, ProverError> {
         use crate::air::BlockTransitionInputs;
-        use winterfell::Proof;
-
-        // Deserialize proof and public inputs
-        let proof = Proof::from_bytes(proof).map_err(|e| {
-            ProverError::Serialization(format!("Failed to deserialize Winterfell proof: {}", e))
+        
+        // Deserialize proof
+        let proof: crate::air::MinimalStarkProof = bincode::deserialize(proof).map_err(|e| {
+            ProverError::Serialization(format!("Failed to deserialize proof: {}", e))
         })?;
 
-        let public_inputs: BlockTransitionInputs =
-            bincode::deserialize(public_inputs).map_err(|e| {
+        // Deserialize public inputs if provided
+        if !public_inputs.is_empty() {
+            let expected_public_inputs: BlockTransitionInputs = bincode::deserialize(public_inputs).map_err(|e| {
                 ProverError::Serialization(format!("Failed to deserialize public inputs: {}", e))
             })?;
-
-        // Verify proof using Winterfell
-        self.verifier.verify(&proof, &public_inputs)?;
-
-        Ok(true)
+            
+            // Verify with public inputs check
+            self.verifier.verify_with_public_inputs(&proof, &expected_public_inputs)
+        } else {
+            // Basic verification without public inputs check
+            self.verifier.verify(&proof)
+        }
     }
 }

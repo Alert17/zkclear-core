@@ -125,44 +125,8 @@ impl SnarkProver for ArkworksSnarkProver {
             )));
         }
 
-        // Deserialize STARK proof to extract structure (if winterfell feature is enabled)
-        #[cfg(feature = "winterfell")]
-        let deserialized_proof = {
-            use crate::air::BlockTransitionInputs;
-            // Parse public inputs to create expected structure
-            let prev_state_root = {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&public_inputs[0..32]);
-                arr
-            };
-            let new_state_root = {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&public_inputs[32..64]);
-                arr
-            };
-            let withdrawals_root = {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&public_inputs[64..96]);
-                arr
-            };
-
-            let expected_public_inputs = BlockTransitionInputs {
-                prev_state_root,
-                new_state_root,
-                withdrawals_root,
-                block_id: 0,  // Will be extracted from proof if available
-                timestamp: 0, // Will be extracted from proof if available
-            };
-
-            crate::stark_proof::DeserializedStarkProof::from_bytes(
-                stark_proof,
-                &expected_public_inputs,
-            )
-            .ok()
-        };
-
-        #[cfg(not(feature = "winterfell"))]
-        let _deserialized_proof = None::<Option<()>>;
+        // For minimal STARK prover, we don't need deserialized proof structure
+        // The circuit will verify the proof structure directly from bytes
 
         // Get proving key (pre-computed and loaded)
         let pk = self.key_manager.proving_key()?;
@@ -171,8 +135,6 @@ impl SnarkProver for ArkworksSnarkProver {
         let circuit_with_witness = StarkProofVerifierCircuit {
             public_inputs: public_inputs.to_vec(),
             stark_proof: stark_proof.to_vec(),
-            #[cfg(feature = "winterfell")]
-            deserialized_proof,
         };
 
         // Use deterministic RNG for proof generation

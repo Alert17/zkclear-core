@@ -41,11 +41,11 @@ impl Prover {
         let stark_prover: Box<dyn StarkProver> = if config.use_placeholders {
             Box::new(crate::stark::PlaceholderStarkProver)
         } else {
-            #[cfg(feature = "winterfell")]
+            #[cfg(feature = "stark")]
             {
-                Box::new(crate::stark::WinterfellStarkProver::new())
+                Box::new(crate::stark::MinimalStarkProver::new())
             }
-            #[cfg(not(feature = "winterfell"))]
+            #[cfg(not(feature = "stark"))]
             {
                 Box::new(crate::stark::PlaceholderStarkProver)
             }

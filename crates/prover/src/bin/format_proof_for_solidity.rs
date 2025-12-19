@@ -5,9 +5,8 @@
 
 use ark_bn254::{g1::G1Affine, g2::G2Affine, Bn254};
 use ark_groth16::Proof;
-use ark_serialize::{CanonicalDeserialize, Compress, Validate};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use std::fs;
-use std::io::Write;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SnarkProofWrapper {
@@ -19,22 +18,34 @@ struct SnarkProofWrapper {
 fn format_g1_point(point: &G1Affine) -> String {
     let x = point.x;
     let y = point.y;
+    let mut x_bytes = Vec::new();
+    let mut y_bytes = Vec::new();
+    x.serialize_with_mode(&mut x_bytes, Compress::No).unwrap();
+    y.serialize_with_mode(&mut y_bytes, Compress::No).unwrap();
     format!(
         "({}, {})",
-        hex::encode(x.to_bytes_le()),
-        hex::encode(y.to_bytes_le())
+        hex::encode(&x_bytes),
+        hex::encode(&y_bytes)
     )
 }
 
 fn format_g2_point(point: &G2Affine) -> String {
     let x = point.x;
     let y = point.y;
+    let mut x_c0_bytes = Vec::new();
+    let mut x_c1_bytes = Vec::new();
+    let mut y_c0_bytes = Vec::new();
+    let mut y_c1_bytes = Vec::new();
+    x.c0.serialize_with_mode(&mut x_c0_bytes, Compress::No).unwrap();
+    x.c1.serialize_with_mode(&mut x_c1_bytes, Compress::No).unwrap();
+    y.c0.serialize_with_mode(&mut y_c0_bytes, Compress::No).unwrap();
+    y.c1.serialize_with_mode(&mut y_c1_bytes, Compress::No).unwrap();
     format!(
         "(({}, {}), ({}, {}))",
-        hex::encode(x.c0.to_bytes_le()),
-        hex::encode(x.c1.to_bytes_le()),
-        hex::encode(y.c0.to_bytes_le()),
-        hex::encode(y.c1.to_bytes_le())
+        hex::encode(&x_c0_bytes),
+        hex::encode(&x_c1_bytes),
+        hex::encode(&y_c0_bytes),
+        hex::encode(&y_c1_bytes)
     )
 }
 
@@ -77,19 +88,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut solidity_proof = Vec::new();
 
-    // A point (G1)
-    solidity_proof.extend_from_slice(&a.x.to_bytes_le());
-    solidity_proof.extend_from_slice(&a.y.to_bytes_le());
+    // A point (G1): 64 bytes
+    let mut a_x_bytes = Vec::new();
+    let mut a_y_bytes = Vec::new();
+    a.x.serialize_with_mode(&mut a_x_bytes, Compress::No).unwrap();
+    a.y.serialize_with_mode(&mut a_y_bytes, Compress::No).unwrap();
+    solidity_proof.extend_from_slice(&a_x_bytes[0..32]); // Take first 32 bytes (little-endian)
+    solidity_proof.extend_from_slice(&a_y_bytes[0..32]);
 
-    // B point (G2)
-    solidity_proof.extend_from_slice(&b.x.c0.to_bytes_le());
-    solidity_proof.extend_from_slice(&b.x.c1.to_bytes_le());
-    solidity_proof.extend_from_slice(&b.y.c0.to_bytes_le());
-    solidity_proof.extend_from_slice(&b.y.c1.to_bytes_le());
+    // B point (G2): 128 bytes
+    let mut b_x_c0_bytes = Vec::new();
+    let mut b_x_c1_bytes = Vec::new();
+    let mut b_y_c0_bytes = Vec::new();
+    let mut b_y_c1_bytes = Vec::new();
+    b.x.c0.serialize_with_mode(&mut b_x_c0_bytes, Compress::No).unwrap();
+    b.x.c1.serialize_with_mode(&mut b_x_c1_bytes, Compress::No).unwrap();
+    b.y.c0.serialize_with_mode(&mut b_y_c0_bytes, Compress::No).unwrap();
+    b.y.c1.serialize_with_mode(&mut b_y_c1_bytes, Compress::No).unwrap();
+    solidity_proof.extend_from_slice(&b_x_c0_bytes[0..32]);
+    solidity_proof.extend_from_slice(&b_x_c1_bytes[0..32]);
+    solidity_proof.extend_from_slice(&b_y_c0_bytes[0..32]);
+    solidity_proof.extend_from_slice(&b_y_c1_bytes[0..32]);
 
-    // C point (G1)
-    solidity_proof.extend_from_slice(&c.x.to_bytes_le());
-    solidity_proof.extend_from_slice(&c.y.to_bytes_le());
+    // C point (G1): 64 bytes
+    let mut c_x_bytes = Vec::new();
+    let mut c_y_bytes = Vec::new();
+    c.x.serialize_with_mode(&mut c_x_bytes, Compress::No).unwrap();
+    c.y.serialize_with_mode(&mut c_y_bytes, Compress::No).unwrap();
+    solidity_proof.extend_from_slice(&c_x_bytes[0..32]);
+    solidity_proof.extend_from_slice(&c_y_bytes[0..32]);
 
     // Convert public inputs to 24 field elements
     // Each 32-byte root = 8 field elements (4 bytes each, little-endian)

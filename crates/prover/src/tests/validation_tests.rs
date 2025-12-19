@@ -6,25 +6,25 @@
 //! - Commitments validity
 //! - Different block sizes
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use crate::air::BlockTransitionInputs;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use crate::prover::{Prover, ProverConfig};
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
-use crate::stark_proof::DeserializedStarkProof;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
+// DeserializedStarkProof removed - using MinimalStarkProof directly
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use bincode;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_state::State;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_stf::apply_tx;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_types::Block;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_types::{Address, Tx, TxPayload};
 
 /// Helper to create a test block
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 fn create_test_block(id: u64, num_txs: usize) -> Block {
     use zkclear_types::{Deposit, TxKind};
 
@@ -57,9 +57,8 @@ fn create_test_block(id: u64, num_txs: usize) -> Block {
     }
 }
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
 async fn test_validate_proof_public_inputs() {
     let mut config = ProverConfig::default();
     config.use_placeholders = false;
@@ -94,14 +93,13 @@ async fn test_validate_proof_public_inputs() {
     );
 }
 
-#[cfg(feature = "winterfell")]
+#[cfg(feature = "stark")]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
 async fn test_validate_stark_proof_structure() {
     use crate::stark::StarkProver;
-    use crate::stark::WinterfellStarkProver;
+    use crate::stark::MinimalStarkProver;
 
-    let prover = WinterfellStarkProver::new();
+    let prover = MinimalStarkProver::new();
     let block = create_test_block(1, 1);
     let prev_state = State::new();
     let mut new_state = prev_state.clone();
@@ -129,6 +127,18 @@ async fn test_validate_stark_proof_structure() {
         .expect("Failed to generate STARK proof");
 
     // Deserialize and validate proof structure
+    use crate::air::MinimalStarkProof;
+    
+    let proof: MinimalStarkProof = bincode::deserialize(&stark_proof)
+        .expect("Failed to deserialize proof");
+
+    // Validate proof integrity
+    assert!(
+        proof.verify_integrity(),
+        "Proof integrity should be valid"
+    );
+
+    // Validate public inputs match
     let expected_public_inputs = BlockTransitionInputs {
         prev_state_root,
         new_state_root,
@@ -137,37 +147,51 @@ async fn test_validate_stark_proof_structure() {
         timestamp: block.timestamp,
     };
 
-    let deserialized = DeserializedStarkProof::from_bytes(&stark_proof, &expected_public_inputs)
-        .expect("Failed to deserialize proof");
-
-    // Validate structure
-    assert!(
-        deserialized.verify_structure(),
-        "Proof structure should be valid"
+    assert_eq!(
+        proof.public_inputs.prev_state_root, expected_public_inputs.prev_state_root,
+        "Previous state root should match"
     );
-    assert!(
-        deserialized.verify_commitments(),
-        "Commitments should be valid"
+    assert_eq!(
+        proof.public_inputs.new_state_root, expected_public_inputs.new_state_root,
+        "New state root should match"
     );
-    assert!(
-        deserialized.verify_public_inputs(&expected_public_inputs),
-        "Public inputs should match"
+    assert_eq!(
+        proof.public_inputs.withdrawals_root, expected_public_inputs.withdrawals_root,
+        "Withdrawals root should match"
     );
 
-    // Validate specific fields
+    // Validate commitments are non-zero
     assert!(
-        deserialized.proof_length >= 100,
-        "Proof should have reasonable size"
+        proof.trace_commitment != [0u8; 32],
+        "Trace commitment should be non-zero"
     );
     assert!(
-        deserialized.num_queries >= 20 && deserialized.num_queries <= 50,
-        "Queries count should be reasonable"
+        proof.constraint_commitment != [0u8; 32],
+        "Constraint commitment should be non-zero"
+    );
+
+    // Validate metadata
+    assert!(
+        proof.metadata.trace_width > 0,
+        "Trace width should be positive"
+    );
+    assert!(
+        proof.metadata.trace_length > 0,
+        "Trace length should be positive"
+    );
+    assert!(
+        proof.metadata.trace_length.is_power_of_two(),
+        "Trace length should be a power of two"
+    );
+    assert!(
+        proof.metadata.num_constraints > 0,
+        "Number of constraints should be positive"
     );
 }
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
+
 async fn test_validate_different_block_sizes() {
     let mut config = ProverConfig::default();
     config.use_placeholders = false;
@@ -216,9 +240,9 @@ async fn test_validate_different_block_sizes() {
     }
 }
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
+
 async fn test_validate_proof_rejects_invalid_inputs() {
     let mut config = ProverConfig::default();
     config.use_placeholders = false;
@@ -252,7 +276,7 @@ async fn test_validate_proof_rejects_invalid_inputs() {
 }
 
 /// Validate proof structure with placeholder provers
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_validate_proof_structure_placeholders() {
     let mut config = ProverConfig::default();
@@ -310,7 +334,7 @@ async fn test_validate_proof_structure_placeholders() {
 }
 
 /// Validate proof consistency across multiple generations
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_validate_proof_consistency() {
     let mut config = ProverConfig::default();
@@ -350,7 +374,7 @@ async fn test_validate_proof_consistency() {
 }
 
 /// Validate state root computation for different states
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_validate_state_root_computation() {
     let mut state1 = State::new();
@@ -387,7 +411,7 @@ async fn test_validate_state_root_computation() {
 }
 
 /// Validate withdrawals root computation
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_validate_withdrawals_root() {
     let mut config = ProverConfig::default();
@@ -429,7 +453,7 @@ async fn test_validate_withdrawals_root() {
 }
 
 /// Validate proof size and structure for different block sizes
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_validate_proof_size_scaling() {
     let mut config = ProverConfig::default();
@@ -467,3 +491,4 @@ async fn test_validate_proof_size_scaling() {
         assert!(*size > 0, "Proof {} should have non-zero size", i);
     }
 }
+

@@ -2,7 +2,7 @@
 //!
 //! This tool:
 //! 1. Creates a test block with transactions
-//! 2. Generates STARK proof using Winterfell
+//! 2. Generates STARK proof using minimal STARK prover
 //! 3. Wraps STARK proof in Groth16 SNARK
 //! 4. Formats proof for Solidity contract submission
 
@@ -10,10 +10,18 @@ use std::fs;
 use std::time::SystemTime;
 use zkclear_prover::{Prover, ProverConfig};
 use zkclear_state::State;
-use zkclear_types::{Block, Deposit, Tx, TxPayload};
+use zkclear_stf::apply_tx;
+use zkclear_types::{Address, Block, Deposit, Tx, TxKind, TxPayload};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("Failed to create runtime: {}", e))?;
+    rt.block_on(async_main())
+}
+
+async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let output_file = args
         .get(1)
@@ -34,52 +42,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📦 Creating test block...");
 
     // Create a test block with some transactions
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    
     let block = Block {
         id: 1,
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
+        timestamp,
         transactions: vec![
             Tx {
+                id: 0,
+                from: Address::from([0x01; 20]),
                 nonce: 0,
+                kind: TxKind::Deposit,
                 payload: TxPayload::Deposit(Deposit {
                     tx_hash: [0x01; 32],
-                    account: [0x02; 20],
+                    account: Address::from([0x02; 20]),
                     asset_id: 1,
                     amount: 1000,
                     chain_id: 1,
                 }),
+                signature: [0u8; 65],
             },
             Tx {
-                nonce: 1,
+                id: 1,
+                from: Address::from([0x03; 20]),
+                nonce: 0,
+                kind: TxKind::Deposit,
                 payload: TxPayload::Deposit(Deposit {
                     tx_hash: [0x03; 32],
-                    account: [0x04; 20],
+                    account: Address::from([0x04; 20]),
                     asset_id: 1,
                     amount: 2000,
                     chain_id: 1,
                 }),
+                signature: [0u8; 65],
             },
         ],
+        state_root: [0u8; 32],
+        withdrawals_root: [0u8; 32],
+        block_proof: vec![],
     };
 
     println!("🌳 Computing state roots...");
 
     // Create initial state
-    let mut prev_state = State::default();
+    let prev_state = State::new();
 
     // Apply transactions to get new state
     let mut new_state = prev_state.clone();
     for tx in &block.transactions {
-        if let TxPayload::Deposit(deposit) = &tx.payload {
-            new_state.add_balance(
-                deposit.account,
-                deposit.asset_id,
-                deposit.chain_id,
-                deposit.amount,
-            );
-        }
+        apply_tx(&mut new_state, tx, block.timestamp)
+            .map_err(|e| format!("Failed to apply tx: {:?}", e))?;
     }
 
     println!("🔐 Generating ZK proof...");
@@ -114,9 +129,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📝 Formatting proof for Solidity...");
 
     // Use the format_proof_for_solidity binary logic
-    use ark_bn254::{g1::G1Affine, g2::G2Affine, Bn254};
+    use ark_bn254::Bn254;
     use ark_groth16::Proof;
-    use ark_serialize::{CanonicalDeserialize, Compress, Validate};
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 
     #[derive(serde::Serialize, serde::Deserialize)]
     struct SnarkProofWrapper {
@@ -138,18 +153,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut solidity_proof = Vec::new();
 
     // A point (G1): 64 bytes
-    solidity_proof.extend_from_slice(&groth16_proof.a.x.to_bytes_le());
-    solidity_proof.extend_from_slice(&groth16_proof.a.y.to_bytes_le());
+    let mut a_x_bytes = Vec::new();
+    let mut a_y_bytes = Vec::new();
+    groth16_proof.a.x.serialize_with_mode(&mut a_x_bytes, Compress::No).unwrap();
+    groth16_proof.a.y.serialize_with_mode(&mut a_y_bytes, Compress::No).unwrap();
+    solidity_proof.extend_from_slice(&a_x_bytes[0..32]); // Take first 32 bytes
+    solidity_proof.extend_from_slice(&a_y_bytes[0..32]);
 
     // B point (G2): 128 bytes
-    solidity_proof.extend_from_slice(&groth16_proof.b.x.c0.to_bytes_le());
-    solidity_proof.extend_from_slice(&groth16_proof.b.x.c1.to_bytes_le());
-    solidity_proof.extend_from_slice(&groth16_proof.b.y.c0.to_bytes_le());
-    solidity_proof.extend_from_slice(&groth16_proof.b.y.c1.to_bytes_le());
+    let mut b_x_c0_bytes = Vec::new();
+    let mut b_x_c1_bytes = Vec::new();
+    let mut b_y_c0_bytes = Vec::new();
+    let mut b_y_c1_bytes = Vec::new();
+    groth16_proof.b.x.c0.serialize_with_mode(&mut b_x_c0_bytes, Compress::No).unwrap();
+    groth16_proof.b.x.c1.serialize_with_mode(&mut b_x_c1_bytes, Compress::No).unwrap();
+    groth16_proof.b.y.c0.serialize_with_mode(&mut b_y_c0_bytes, Compress::No).unwrap();
+    groth16_proof.b.y.c1.serialize_with_mode(&mut b_y_c1_bytes, Compress::No).unwrap();
+    solidity_proof.extend_from_slice(&b_x_c0_bytes[0..32]);
+    solidity_proof.extend_from_slice(&b_x_c1_bytes[0..32]);
+    solidity_proof.extend_from_slice(&b_y_c0_bytes[0..32]);
+    solidity_proof.extend_from_slice(&b_y_c1_bytes[0..32]);
 
     // C point (G1): 64 bytes
-    solidity_proof.extend_from_slice(&groth16_proof.c.x.to_bytes_le());
-    solidity_proof.extend_from_slice(&groth16_proof.c.y.to_bytes_le());
+    let mut c_x_bytes = Vec::new();
+    let mut c_y_bytes = Vec::new();
+    groth16_proof.c.x.serialize_with_mode(&mut c_x_bytes, Compress::No).unwrap();
+    groth16_proof.c.y.serialize_with_mode(&mut c_y_bytes, Compress::No).unwrap();
+    solidity_proof.extend_from_slice(&c_x_bytes[0..32]);
+    solidity_proof.extend_from_slice(&c_y_bytes[0..32]);
 
     // Convert public inputs to 24 field elements
     let mut public_inputs_elements = Vec::new();

@@ -1,20 +1,20 @@
 //! Performance and profiling tests for proof generation
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use crate::prover::{Prover, ProverConfig};
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use std::time::Instant;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_state::State;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_stf::apply_tx;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_types::Block;
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 use zkclear_types::{Address, Tx, TxPayload};
 
 /// Helper to create a test block
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 fn create_test_block(id: u64, num_txs: usize) -> Block {
     use zkclear_types::{Deposit, TxKind};
 
@@ -47,9 +47,9 @@ fn create_test_block(id: u64, num_txs: usize) -> Block {
     }
 }
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
+
 async fn test_proof_generation_performance() {
     let mut config = ProverConfig::default();
     config.use_placeholders = false;
@@ -85,9 +85,9 @@ async fn test_proof_generation_performance() {
     );
 }
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
+
 async fn test_proof_size_scaling() {
     let mut config = ProverConfig::default();
     config.use_placeholders = false;
@@ -134,9 +134,9 @@ async fn test_proof_size_scaling() {
     }
 }
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
+
 async fn test_proof_generation_time_scaling() {
     let mut config = ProverConfig::default();
     config.use_placeholders = false;
@@ -176,9 +176,9 @@ async fn test_proof_generation_time_scaling() {
     }
 }
 
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
-#[ignore] // TODO: Fix assertion issue with Winterfell AIR
+
 async fn test_verification_performance() {
     let mut config = ProverConfig::default();
     config.use_placeholders = false;
@@ -225,7 +225,7 @@ async fn test_verification_performance() {
 }
 
 /// Performance test with placeholder provers
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_proof_generation_performance_placeholders() {
     let mut config = ProverConfig::default();
@@ -263,7 +263,7 @@ async fn test_proof_generation_performance_placeholders() {
 }
 
 /// Test proof size scaling with placeholders
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_proof_size_scaling_placeholders() {
     let mut config = ProverConfig::default();
@@ -313,7 +313,7 @@ async fn test_proof_size_scaling_placeholders() {
 }
 
 /// Test proof generation time scaling with placeholders
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_proof_generation_time_scaling_placeholders() {
     let mut config = ProverConfig::default();
@@ -361,7 +361,7 @@ async fn test_proof_generation_time_scaling_placeholders() {
 }
 
 /// Test verification performance with placeholders
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_verification_performance_placeholders() {
     use bincode;
@@ -407,7 +407,7 @@ async fn test_verification_performance_placeholders() {
 }
 
 /// Test state root computation performance
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_state_root_computation_performance() {
     let sizes = vec![1, 2, 4, 8, 16, 32];
@@ -452,7 +452,7 @@ async fn test_state_root_computation_performance() {
 }
 
 /// Test multiple proof generations for consistency
-#[cfg(any(feature = "winterfell", feature = "arkworks"))]
+#[cfg(any(feature = "stark", feature = "arkworks"))]
 #[tokio::test]
 async fn test_multiple_proof_generations_performance() {
     let mut config = ProverConfig::default();
