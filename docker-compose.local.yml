@@ -1,0 +1,28 @@
+services:
+  zkclear-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zkclear-api-local
+    restart: unless-stopped
+    environment:
+      - RUST_LOG=info
+      - DATA_DIR=/app/data
+      - STORAGE_PATH=/app/data
+      - MAX_QUEUE_SIZE=10000
+      - MAX_TXS_PER_BLOCK=100
+      - BLOCK_INTERVAL_SEC=1
+      - USE_PLACEHOLDER_PROVER=true
+      - GROTH16_KEYS_DIR=
+    volumes:
+      # Persistent storage for RocksDB (local directory)
+      - ./data:/app/data
+    ports:
+      - "3000:8080"  # Map container port 8080 to host port 3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+

@@ -9,7 +9,6 @@ target/
 *.swo
 *~
 .DS_Store
-Cargo.lock
 CHANGES_SUMMARY.md
 PROJECT_QUESTIONS.md
 
