@@ -15,6 +15,8 @@ sha3 = "0.10"
 anyhow = "1.0"
 thiserror = "1.0"
 async-trait = "0.1"
+hex = "0.4"
+chrono = "0.4"
 
 # ZK Proof libraries
 # Winterfell for STARK proofs (reliable, well-maintained, available on crates.io)
@@ -43,4 +45,14 @@ tokio = { version = "1.0", features = ["full"] }
 name = "export_verifying_key"
 path = "src/bin/export_verifying_key.rs"
 required-features = ["arkworks"]
+
+[[bin]]
+name = "format_proof_for_solidity"
+path = "src/bin/format_proof_for_solidity.rs"
+required-features = ["arkworks"]
+
+[[bin]]
+name = "generate_and_format_proof"
+path = "src/bin/generate_and_format_proof.rs"
+required-features = ["winterfell", "arkworks"]
 

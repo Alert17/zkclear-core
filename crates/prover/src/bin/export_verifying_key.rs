@@ -33,31 +33,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("// Groth16 Verifying Key for Solidity");
     println!("// Generated from Arkworks Groth16 keys");
     println!();
-    
+
     let (alpha_x, alpha_y) = format_g1_point(alpha);
     println!("// Alpha (G1):");
     println!("alpha_X: {}", alpha_x);
     println!("alpha_Y: {}", alpha_y);
     println!();
-    
+
     let (beta_x_c0, beta_x_c1, beta_y_c0, beta_y_c1) = format_g2_point(beta);
     println!("// Beta (G2):");
     println!("beta_X: [{}, {}]", beta_x_c0, beta_x_c1);
     println!("beta_Y: [{}, {}]", beta_y_c0, beta_y_c1);
     println!();
-    
+
     let (gamma_x_c0, gamma_x_c1, gamma_y_c0, gamma_y_c1) = format_g2_point(gamma);
     println!("// Gamma (G2):");
     println!("gamma_X: [{}, {}]", gamma_x_c0, gamma_x_c1);
     println!("gamma_Y: [{}, {}]", gamma_y_c0, gamma_y_c1);
     println!();
-    
+
     let (delta_x_c0, delta_x_c1, delta_y_c0, delta_y_c1) = format_g2_point(delta);
     println!("// Delta (G2):");
     println!("delta_X: [{}, {}]", delta_x_c0, delta_x_c1);
     println!("delta_Y: [{}, {}]", delta_y_c0, delta_y_c1);
     println!();
-    
+
     println!("// Gamma_ABC (G1) - {} elements:", gamma_abc.len());
     for (i, point) in gamma_abc.iter().enumerate() {
         let (x, y) = format_g1_point(point);
@@ -103,4 +103,3 @@ fn main() {
     eprintln!("Error: arkworks feature is required for this utility");
     std::process::exit(1);
 }
-
