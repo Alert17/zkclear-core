@@ -1,9 +1,9 @@
 //! Tests for STARK proof generation using minimal STARK prover
 
 #[cfg(feature = "stark")]
-use crate::air::{BlockTransitionInputs, BlockTransitionPrivateInputs};
+use crate::air::BlockTransitionInputs;
 #[cfg(feature = "stark")]
-use crate::stark::{StarkProver, MinimalStarkProver};
+use crate::stark::{MinimalStarkProver, StarkProver};
 #[cfg(feature = "stark")]
 use bincode;
 #[cfg(feature = "stark")]

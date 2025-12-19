@@ -15,6 +15,7 @@ sha3 = "0.10"
 anyhow = "1.0"
 thiserror = "1.0"
 async-trait = "0.1"
+futures = "0.3"
 hex = "0.4"
 chrono = "0.4"
 tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros"], optional = true }
@@ -38,6 +39,7 @@ default = []
 stark = []  # Custom minimal STARK prover (always enabled, no external dependencies)
 arkworks = ["dep:ark-groth16", "dep:ark-bn254", "dep:ark-ec", "dep:ark-ff", "dep:ark-std", "dep:ark-r1cs-std", "dep:ark-relations", "dep:ark-serialize", "dep:ark-snark"]
 bin = ["tokio"]  # Feature for binary targets that need tokio
+tokio = ["dep:tokio"]  # Feature to enable tokio for async operations
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full", "rt", "macros"] }

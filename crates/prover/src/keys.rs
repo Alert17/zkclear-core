@@ -62,15 +62,21 @@ impl KeyManager {
 
         if keys_exist && !force_regenerate {
             // Load existing keys
+            eprintln!("   Loading existing Groth16 keys...");
             self.load_keys()?;
+            eprintln!("   Keys loaded");
             return Ok(());
         }
 
         // Generate new keys
+        eprintln!("   Generating new Groth16 keys (this may take 30-60 seconds)...");
+        eprintln!("   Please wait, this is a one-time operation...");
         self.generate_keys()?;
 
         // Save keys to disk
+        eprintln!("   Saving keys to disk...");
         self.save_keys()?;
+        eprintln!("   Keys generated and saved");
 
         Ok(())
     }

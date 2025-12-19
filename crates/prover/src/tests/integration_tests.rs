@@ -124,10 +124,13 @@ async fn test_e2e_multiple_blocks_sequential() {
     let prover = Prover::new(config).expect("Failed to create prover");
 
     let mut state = State::new();
+    let mut address_offset = 0;
 
     // Process multiple blocks sequentially
     for block_id in 1..=5 {
-        let block = create_test_block(block_id, 2);
+        // Use different addresses for each block to avoid nonce conflicts
+        let block = create_test_block_with_offset(block_id, 2, address_offset);
+        address_offset += 2; // Increment offset for next block
         let prev_state = state.clone();
 
         // Apply transactions
@@ -298,7 +301,7 @@ async fn test_e2e_flow_structure_with_placeholders() {
 async fn test_e2e_state_root_computation() {
     let mut config = ProverConfig::default();
     config.use_placeholders = true;
-    let prover = Prover::new(config).expect("Failed to create prover");
+    let _prover = Prover::new(config).expect("Failed to create prover");
 
     let mut state = State::new();
     let block = create_test_block(1, 2);

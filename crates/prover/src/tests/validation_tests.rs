@@ -96,8 +96,8 @@ async fn test_validate_proof_public_inputs() {
 #[cfg(feature = "stark")]
 #[tokio::test]
 async fn test_validate_stark_proof_structure() {
-    use crate::stark::StarkProver;
     use crate::stark::MinimalStarkProver;
+    use crate::stark::StarkProver;
 
     let prover = MinimalStarkProver::new();
     let block = create_test_block(1, 1);
@@ -128,15 +128,12 @@ async fn test_validate_stark_proof_structure() {
 
     // Deserialize and validate proof structure
     use crate::air::MinimalStarkProof;
-    
-    let proof: MinimalStarkProof = bincode::deserialize(&stark_proof)
-        .expect("Failed to deserialize proof");
+
+    let proof: MinimalStarkProof =
+        bincode::deserialize(&stark_proof).expect("Failed to deserialize proof");
 
     // Validate proof integrity
-    assert!(
-        proof.verify_integrity(),
-        "Proof integrity should be valid"
-    );
+    assert!(proof.verify_integrity(), "Proof integrity should be valid");
 
     // Validate public inputs match
     let expected_public_inputs = BlockTransitionInputs {
@@ -261,10 +258,16 @@ async fn test_validate_proof_rejects_invalid_inputs() {
         .await
         .expect("Failed to generate proof");
 
-    // Try to verify with wrong state
-    let wrong_state = State::new();
+    // Create a different prev_state with a different transaction to ensure different state root
+    let mut wrong_prev_state = State::new();
+    let wrong_block = create_test_block(2, 1); // Different block with different tx
+    for tx in &wrong_block.transactions {
+        apply_tx(&mut wrong_prev_state, tx, wrong_block.timestamp)
+            .expect("Failed to apply transaction");
+    }
+
     let wrong_proof = prover
-        .prove_block(&block, &wrong_state, &new_state)
+        .prove_block(&block, &wrong_prev_state, &new_state)
         .await
         .expect("Should generate proof even with wrong prev state");
 
@@ -378,7 +381,7 @@ async fn test_validate_proof_consistency() {
 #[tokio::test]
 async fn test_validate_state_root_computation() {
     let mut state1 = State::new();
-    let mut state2 = State::new();
+    let state2 = State::new();
 
     // Compute roots for empty states - should be the same
     let root1 = Prover::compute_state_root_static(&state1).expect("Failed to compute root 1");
@@ -491,4 +494,3 @@ async fn test_validate_proof_size_scaling() {
         assert!(*size > 0, "Proof {} should have non-zero size", i);
     }
 }
-

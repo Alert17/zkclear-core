@@ -3070,6 +3070,8 @@ name = "zkclear-demo"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "tokio",
+ "zkclear-prover",
  "zkclear-sequencer",
  "zkclear-types",
 ]
@@ -3091,6 +3093,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "chrono",
+ "futures",
  "hex",
  "serde",
  "serde_bytes",
@@ -3108,6 +3111,7 @@ name = "zkclear-sequencer"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "futures",
  "k256",
  "serde",
  "sha2",

@@ -22,11 +22,7 @@ fn format_g1_point(point: &G1Affine) -> String {
     let mut y_bytes = Vec::new();
     x.serialize_with_mode(&mut x_bytes, Compress::No).unwrap();
     y.serialize_with_mode(&mut y_bytes, Compress::No).unwrap();
-    format!(
-        "({}, {})",
-        hex::encode(&x_bytes),
-        hex::encode(&y_bytes)
-    )
+    format!("({}, {})", hex::encode(&x_bytes), hex::encode(&y_bytes))
 }
 
 fn format_g2_point(point: &G2Affine) -> String {
@@ -36,10 +32,14 @@ fn format_g2_point(point: &G2Affine) -> String {
     let mut x_c1_bytes = Vec::new();
     let mut y_c0_bytes = Vec::new();
     let mut y_c1_bytes = Vec::new();
-    x.c0.serialize_with_mode(&mut x_c0_bytes, Compress::No).unwrap();
-    x.c1.serialize_with_mode(&mut x_c1_bytes, Compress::No).unwrap();
-    y.c0.serialize_with_mode(&mut y_c0_bytes, Compress::No).unwrap();
-    y.c1.serialize_with_mode(&mut y_c1_bytes, Compress::No).unwrap();
+    x.c0.serialize_with_mode(&mut x_c0_bytes, Compress::No)
+        .unwrap();
+    x.c1.serialize_with_mode(&mut x_c1_bytes, Compress::No)
+        .unwrap();
+    y.c0.serialize_with_mode(&mut y_c0_bytes, Compress::No)
+        .unwrap();
+    y.c1.serialize_with_mode(&mut y_c1_bytes, Compress::No)
+        .unwrap();
     format!(
         "(({}, {}), ({}, {}))",
         hex::encode(&x_c0_bytes),
@@ -91,8 +91,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A point (G1): 64 bytes
     let mut a_x_bytes = Vec::new();
     let mut a_y_bytes = Vec::new();
-    a.x.serialize_with_mode(&mut a_x_bytes, Compress::No).unwrap();
-    a.y.serialize_with_mode(&mut a_y_bytes, Compress::No).unwrap();
+    a.x.serialize_with_mode(&mut a_x_bytes, Compress::No)
+        .unwrap();
+    a.y.serialize_with_mode(&mut a_y_bytes, Compress::No)
+        .unwrap();
     solidity_proof.extend_from_slice(&a_x_bytes[0..32]); // Take first 32 bytes (little-endian)
     solidity_proof.extend_from_slice(&a_y_bytes[0..32]);
 
@@ -101,10 +103,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut b_x_c1_bytes = Vec::new();
     let mut b_y_c0_bytes = Vec::new();
     let mut b_y_c1_bytes = Vec::new();
-    b.x.c0.serialize_with_mode(&mut b_x_c0_bytes, Compress::No).unwrap();
-    b.x.c1.serialize_with_mode(&mut b_x_c1_bytes, Compress::No).unwrap();
-    b.y.c0.serialize_with_mode(&mut b_y_c0_bytes, Compress::No).unwrap();
-    b.y.c1.serialize_with_mode(&mut b_y_c1_bytes, Compress::No).unwrap();
+    b.x.c0
+        .serialize_with_mode(&mut b_x_c0_bytes, Compress::No)
+        .unwrap();
+    b.x.c1
+        .serialize_with_mode(&mut b_x_c1_bytes, Compress::No)
+        .unwrap();
+    b.y.c0
+        .serialize_with_mode(&mut b_y_c0_bytes, Compress::No)
+        .unwrap();
+    b.y.c1
+        .serialize_with_mode(&mut b_y_c1_bytes, Compress::No)
+        .unwrap();
     solidity_proof.extend_from_slice(&b_x_c0_bytes[0..32]);
     solidity_proof.extend_from_slice(&b_x_c1_bytes[0..32]);
     solidity_proof.extend_from_slice(&b_y_c0_bytes[0..32]);
@@ -113,8 +123,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // C point (G1): 64 bytes
     let mut c_x_bytes = Vec::new();
     let mut c_y_bytes = Vec::new();
-    c.x.serialize_with_mode(&mut c_x_bytes, Compress::No).unwrap();
-    c.y.serialize_with_mode(&mut c_y_bytes, Compress::No).unwrap();
+    c.x.serialize_with_mode(&mut c_x_bytes, Compress::No)
+        .unwrap();
+    c.y.serialize_with_mode(&mut c_y_bytes, Compress::No)
+        .unwrap();
     solidity_proof.extend_from_slice(&c_x_bytes[0..32]);
     solidity_proof.extend_from_slice(&c_y_bytes[0..32]);
 
@@ -176,7 +188,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Write output
     if let Some(output_path) = output_file {
         fs::write(output_path, output)?;
-        println!("✅ Proof formatted and saved to: {}", output_path);
+        println!("Proof formatted and saved to: {}", output_path);
     } else {
         print!("{}", output);
     }

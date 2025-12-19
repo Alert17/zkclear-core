@@ -28,7 +28,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|s| s.as_str())
         .unwrap_or("proof_for_solidity.js");
 
-    println!("🔧 Initializing Prover...");
+    println!("Initializing Prover...");
 
     // Initialize prover with keys
     let config = ProverConfig {
@@ -39,14 +39,14 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
 
     let prover = Prover::new(config).map_err(|e| format!("Failed to create prover: {}", e))?;
 
-    println!("📦 Creating test block...");
+    println!("Creating test block...");
 
     // Create a test block with some transactions
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    
+
     let block = Block {
         id: 1,
         timestamp,
@@ -85,7 +85,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         block_proof: vec![],
     };
 
-    println!("🌳 Computing state roots...");
+    println!("Computing state roots...");
 
     // Create initial state
     let prev_state = State::new();
@@ -97,7 +97,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| format!("Failed to apply tx: {:?}", e))?;
     }
 
-    println!("🔐 Generating ZK proof...");
+    println!("Generating ZK proof...");
 
     // Generate proof
     let block_proof = prover
@@ -105,7 +105,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|e| format!("Failed to generate proof: {}", e))?;
 
-    println!("✅ Proof generated!");
+    println!("Proof generated!");
     println!(
         "   - Prev state root: 0x{}",
         hex::encode(block_proof.prev_state_root)
@@ -123,10 +123,10 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     // Save proof to file for formatting
     let proof_file = "generated_proof.bin";
     fs::write(&proof_file, bincode::serialize(&block_proof.zk_proof)?)?;
-    println!("💾 Proof saved to: {}", proof_file);
+    println!("Proof saved to: {}", proof_file);
 
     // Format proof for Solidity
-    println!("📝 Formatting proof for Solidity...");
+    println!("Formatting proof for Solidity...");
 
     // Use the format_proof_for_solidity binary logic
     use ark_bn254::Bn254;
@@ -155,8 +155,16 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     // A point (G1): 64 bytes
     let mut a_x_bytes = Vec::new();
     let mut a_y_bytes = Vec::new();
-    groth16_proof.a.x.serialize_with_mode(&mut a_x_bytes, Compress::No).unwrap();
-    groth16_proof.a.y.serialize_with_mode(&mut a_y_bytes, Compress::No).unwrap();
+    groth16_proof
+        .a
+        .x
+        .serialize_with_mode(&mut a_x_bytes, Compress::No)
+        .unwrap();
+    groth16_proof
+        .a
+        .y
+        .serialize_with_mode(&mut a_y_bytes, Compress::No)
+        .unwrap();
     solidity_proof.extend_from_slice(&a_x_bytes[0..32]); // Take first 32 bytes
     solidity_proof.extend_from_slice(&a_y_bytes[0..32]);
 
@@ -165,10 +173,30 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     let mut b_x_c1_bytes = Vec::new();
     let mut b_y_c0_bytes = Vec::new();
     let mut b_y_c1_bytes = Vec::new();
-    groth16_proof.b.x.c0.serialize_with_mode(&mut b_x_c0_bytes, Compress::No).unwrap();
-    groth16_proof.b.x.c1.serialize_with_mode(&mut b_x_c1_bytes, Compress::No).unwrap();
-    groth16_proof.b.y.c0.serialize_with_mode(&mut b_y_c0_bytes, Compress::No).unwrap();
-    groth16_proof.b.y.c1.serialize_with_mode(&mut b_y_c1_bytes, Compress::No).unwrap();
+    groth16_proof
+        .b
+        .x
+        .c0
+        .serialize_with_mode(&mut b_x_c0_bytes, Compress::No)
+        .unwrap();
+    groth16_proof
+        .b
+        .x
+        .c1
+        .serialize_with_mode(&mut b_x_c1_bytes, Compress::No)
+        .unwrap();
+    groth16_proof
+        .b
+        .y
+        .c0
+        .serialize_with_mode(&mut b_y_c0_bytes, Compress::No)
+        .unwrap();
+    groth16_proof
+        .b
+        .y
+        .c1
+        .serialize_with_mode(&mut b_y_c1_bytes, Compress::No)
+        .unwrap();
     solidity_proof.extend_from_slice(&b_x_c0_bytes[0..32]);
     solidity_proof.extend_from_slice(&b_x_c1_bytes[0..32]);
     solidity_proof.extend_from_slice(&b_y_c0_bytes[0..32]);
@@ -177,8 +205,16 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     // C point (G1): 64 bytes
     let mut c_x_bytes = Vec::new();
     let mut c_y_bytes = Vec::new();
-    groth16_proof.c.x.serialize_with_mode(&mut c_x_bytes, Compress::No).unwrap();
-    groth16_proof.c.y.serialize_with_mode(&mut c_y_bytes, Compress::No).unwrap();
+    groth16_proof
+        .c
+        .x
+        .serialize_with_mode(&mut c_x_bytes, Compress::No)
+        .unwrap();
+    groth16_proof
+        .c
+        .y
+        .serialize_with_mode(&mut c_y_bytes, Compress::No)
+        .unwrap();
     solidity_proof.extend_from_slice(&c_x_bytes[0..32]);
     solidity_proof.extend_from_slice(&c_y_bytes[0..32]);
 
@@ -247,8 +283,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     output.push_str("// );\n");
 
     fs::write(output_file, output)?;
-    println!("✅ Formatted proof saved to: {}", output_file);
-    println!("📋 You can now use this in your Hardhat test!");
+    println!("Formatted proof saved to: {}", output_file);
+    println!("You can now use this in your Hardhat test!");
 
     Ok(())
 }

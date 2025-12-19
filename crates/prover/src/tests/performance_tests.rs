@@ -56,7 +56,7 @@ async fn test_proof_generation_performance() {
     let prover = Prover::new(config).expect("Failed to create prover");
 
     let block = create_test_block(1, 4);
-    let mut prev_state = State::new();
+    let prev_state = State::new();
     let mut new_state = prev_state.clone();
 
     for tx in &block.transactions {
@@ -99,7 +99,7 @@ async fn test_proof_size_scaling() {
 
     for size in sizes {
         let block = create_test_block(size as u64, size);
-        let mut prev_state = State::new();
+        let prev_state = State::new();
         let mut new_state = prev_state.clone();
 
         for tx in &block.transactions {
@@ -148,7 +148,7 @@ async fn test_proof_generation_time_scaling() {
 
     for size in sizes {
         let block = create_test_block(size as u64, size);
-        let mut prev_state = State::new();
+        let prev_state = State::new();
         let mut new_state = prev_state.clone();
 
         for tx in &block.transactions {
@@ -185,7 +185,7 @@ async fn test_verification_performance() {
     let prover = Prover::new(config).expect("Failed to create prover");
 
     let block = create_test_block(1, 2);
-    let mut prev_state = State::new();
+    let prev_state = State::new();
     let mut new_state = prev_state.clone();
 
     for tx in &block.transactions {

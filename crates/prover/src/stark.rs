@@ -39,7 +39,7 @@ impl StarkProver for PlaceholderStarkProver {
         _withdrawals_root: &[u8; 32],
         _block_data: &[u8],
     ) -> Result<Vec<u8>, ProverError> {
-        // Placeholder implementation: returns a dummy proof
+        // Placeholder implementation: returns a dummy proof immediately
         // This is intentional for testing/development when real proof generation is not needed
         Ok(b"STARK_PROOF_PLACEHOLDER".to_vec())
     }
@@ -111,9 +111,8 @@ impl StarkProver for MinimalStarkProver {
         let proof = self.prover.prove(public_inputs, private_inputs)?;
 
         // Serialize proof
-        let serialized = bincode::serialize(&proof).map_err(|e| {
-            ProverError::Serialization(format!("Failed to serialize proof: {}", e))
-        })?;
+        let serialized = bincode::serialize(&proof)
+            .map_err(|e| ProverError::Serialization(format!("Failed to serialize proof: {}", e)))?;
 
         Ok(serialized)
     }
@@ -124,7 +123,7 @@ impl StarkProver for MinimalStarkProver {
         public_inputs: &[u8],
     ) -> Result<bool, ProverError> {
         use crate::air::BlockTransitionInputs;
-        
+
         // Deserialize proof
         let proof: crate::air::MinimalStarkProof = bincode::deserialize(proof).map_err(|e| {
             ProverError::Serialization(format!("Failed to deserialize proof: {}", e))
@@ -132,12 +131,17 @@ impl StarkProver for MinimalStarkProver {
 
         // Deserialize public inputs if provided
         if !public_inputs.is_empty() {
-            let expected_public_inputs: BlockTransitionInputs = bincode::deserialize(public_inputs).map_err(|e| {
-                ProverError::Serialization(format!("Failed to deserialize public inputs: {}", e))
-            })?;
-            
+            let expected_public_inputs: BlockTransitionInputs = bincode::deserialize(public_inputs)
+                .map_err(|e| {
+                    ProverError::Serialization(format!(
+                        "Failed to deserialize public inputs: {}",
+                        e
+                    ))
+                })?;
+
             // Verify with public inputs check
-            self.verifier.verify_with_public_inputs(&proof, &expected_public_inputs)
+            self.verifier
+                .verify_with_public_inputs(&proof, &expected_public_inputs)
         } else {
             // Basic verification without public inputs check
             self.verifier.verify(&proof)

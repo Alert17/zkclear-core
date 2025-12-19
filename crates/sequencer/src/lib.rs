@@ -290,41 +290,35 @@ impl Sequencer {
     }
 
     /// Generate block proof using prover (blocking call)
+    /// This is called from spawn_blocking, so we create a tokio runtime
+    /// because async_trait functions require a tokio runtime to execute properly
     fn generate_block_proof(
         &self,
-        prover: &Prover,
+        prover: &Arc<Prover>,
         block: &Block,
         prev_state: &State,
         new_state: &State,
     ) -> Result<Vec<u8>, SequencerError> {
-        // Use tokio runtime to run async proof generation
-        let rt_handle = tokio::runtime::Handle::try_current()
-            .ok()
-            .or_else(|| {
-                // Create a new runtime if not in async context
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .ok()?;
-                Some(rt.handle().clone())
-            })
-            .ok_or_else(|| {
-                SequencerError::ProverError("Failed to get or create tokio runtime".to_string())
+        // We're in spawn_blocking, so we can create a new runtime
+        // Use multi_thread runtime to properly handle async_trait functions
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1) // Use single thread to avoid overhead
+            .enable_all()
+            .build()
+            .map_err(|e| {
+                SequencerError::ProverError(format!("Failed to create runtime: {:?}", e))
             })?;
 
-        rt_handle.block_on(async {
-            let block_proof = prover
-                .prove_block(block, prev_state, new_state)
-                .await
-                .map_err(|e| {
-                    SequencerError::ProverError(format!("Proof generation failed: {:?}", e))
-                })?;
+        // Execute the async function
+        let block_proof = rt
+            .block_on(prover.prove_block(block, prev_state, new_state))
+            .map_err(|e| {
+                SequencerError::ProverError(format!("Proof generation failed: {:?}", e))
+            })?;
 
-            // Serialize the proof
-            bincode::serialize(&block_proof.zk_proof).map_err(|e| {
-                SequencerError::ProverError(format!("Failed to serialize proof: {}", e))
-            })
-        })
+        // Serialize the proof
+        bincode::serialize(&block_proof.zk_proof)
+            .map_err(|e| SequencerError::ProverError(format!("Failed to serialize proof: {}", e)))
     }
 
     /// Compute state root from state

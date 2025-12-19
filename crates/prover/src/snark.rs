@@ -40,7 +40,7 @@ impl SnarkProver for PlaceholderSnarkProver {
         _stark_proof: &[u8],
         _public_inputs: &[u8],
     ) -> Result<Vec<u8>, ProverError> {
-        // Placeholder implementation: returns a dummy proof
+        // Placeholder implementation: returns a dummy proof immediately
         // This is intentional for testing/development when real proof generation is not needed
         Ok(b"SNARK_PROOF_PLACEHOLDER".to_vec())
     }
@@ -150,9 +150,17 @@ impl SnarkProver for ArkworksSnarkProver {
         let mut rng = StdRng::from_seed(seed);
 
         // Generate proof using pre-computed proving key
+        // This can take 10-30 seconds depending on circuit complexity
+        eprintln!("      Generating Groth16 proof (this may take 10-30 seconds)...");
+        let start = std::time::Instant::now();
         let proof = Groth16::<Bn254>::prove(pk, circuit_with_witness, &mut rng).map_err(|e| {
             ProverError::SnarkProof(format!("Failed to generate Groth16 proof: {:?}", e))
         })?;
+        let duration = start.elapsed();
+        eprintln!(
+            "      Groth16 proof generated in {:.2}s",
+            duration.as_secs_f64()
+        );
 
         // Serialize proof and public inputs using ark-serialize
         use ark_serialize::{CanonicalSerialize, Compress};
@@ -232,15 +240,45 @@ impl SnarkProver for ArkworksSnarkProver {
 
         // Convert public inputs to field elements
         // Each 32-byte root = 8 field elements (4 bytes each)
+        // Total: 3 roots * 8 elements = 24 field elements
+        if public_inputs.len() < 96 {
+            return Err(ProverError::SnarkProof(format!(
+                "Invalid public inputs length: expected at least 96 bytes, got {}",
+                public_inputs.len()
+            )));
+        }
+
         let mut public_inputs_elements = Vec::new();
-        for chunk in public_inputs.chunks(4).take(24) {
-            // 3 roots * 8 elements = 24
-            if chunk.len() == 4 {
-                let value = u32::from_le_bytes(chunk.try_into().map_err(|_| {
-                    ProverError::Serialization("Failed to parse public input".to_string())
-                })?);
+        // Process each root (32 bytes = 8 u32 values)
+        for root_idx in 0..3 {
+            let root_start = root_idx * 32;
+            for i in 0..8 {
+                let byte_start = root_start + (i * 4);
+                let chunk = &public_inputs[byte_start..byte_start + 4];
+                let value = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                 public_inputs_elements.push(ark_bn254::Fr::from(value as u64));
             }
+        }
+
+        // Ensure we have exactly 24 elements
+        if public_inputs_elements.len() != 24 {
+            return Err(ProverError::SnarkProof(format!(
+                "Invalid public inputs elements count: expected 24, got {}",
+                public_inputs_elements.len()
+            )));
+        }
+
+        // Check that verifying key has correct number of public inputs
+        // gamma_abc_g1 should have length = num_public_inputs + 1
+        // We have 24 public inputs, so gamma_abc_g1 should have length 25
+        let expected_gamma_abc_len = public_inputs_elements.len() + 1;
+        if vk.gamma_abc_g1.len() != expected_gamma_abc_len {
+            return Err(ProverError::SnarkProof(format!(
+                "Verifying key has incorrect number of public inputs: expected {} ({} + 1), got {}",
+                expected_gamma_abc_len,
+                public_inputs_elements.len(),
+                vk.gamma_abc_g1.len()
+            )));
         }
 
         // Verify proof
