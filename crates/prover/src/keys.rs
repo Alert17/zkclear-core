@@ -90,7 +90,8 @@ impl KeyManager {
         // In production, this should use secure randomness
         let mut seed = [0u8; 32];
         // Use a fixed seed for reproducibility (can be changed for production)
-        seed[0..8].copy_from_slice(b"ZKClearPK"); // Fixed seed for key generation
+        // "ZKClearPK" is 9 bytes, but we need 8, so use first 8 bytes
+        seed[0..8].copy_from_slice(&b"ZKClearPK"[0..8]); // Fixed seed for key generation
 
         let mut rng = StdRng::from_seed(seed);
 
