@@ -49,6 +49,8 @@ fn init_storage() -> Result<Arc<dyn zkclear_storage::Storage>, Box<dyn std::erro
 async fn block_production_task(sequencer: Arc<Sequencer>) {
     let interval_secs = get_block_interval_seconds();
     let mut interval_timer = interval(Duration::from_secs(interval_secs));
+    let mut consecutive_errors = 0;
+    const MAX_CONSECUTIVE_ERRORS: u32 = 10;
 
     println!(
         "Block production task started (interval: {}s)",
@@ -59,12 +61,14 @@ async fn block_production_task(sequencer: Arc<Sequencer>) {
         interval_timer.tick().await;
 
         if !sequencer.has_pending_txs() {
+            consecutive_errors = 0; // Reset error counter on successful skip
             continue;
         }
 
         // Build and execute block with proof generation enabled
         match sequencer.build_and_execute_block_with_proof(true) {
             Ok(block) => {
+                consecutive_errors = 0; // Reset error counter on success
                 println!(
                     "Block {} created and executed: {} transactions, queue: {}",
                     block.id,
@@ -74,9 +78,19 @@ async fn block_production_task(sequencer: Arc<Sequencer>) {
             }
             Err(SequencerError::NoTransactions) => {
                 // Queue was empty between check and build - skip
+                consecutive_errors = 0;
             }
             Err(e) => {
-                eprintln!("Failed to create/execute block: {:?}", e);
+                consecutive_errors += 1;
+                eprintln!("Failed to create/execute block (error {}/{}): {:?}", 
+                    consecutive_errors, MAX_CONSECUTIVE_ERRORS, e);
+                
+                // If too many consecutive errors, wait longer before retrying
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                    eprintln!("Too many consecutive errors, waiting 60s before retrying...");
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    consecutive_errors = 0; // Reset after backoff
+                }
             }
         }
     }
@@ -151,7 +165,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("0.0.0.0:8080").await?;
     println!("ZKClear API server listening on http://0.0.0.0:8080");
 
-    let server_handle = tokio::spawn(async move { axum::serve(listener, app).await });
+    // Setup graceful shutdown
+    let shutdown_signal = async {
+        let ctrl_c = async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to install Ctrl+C handler");
+        };
+
+        #[cfg(unix)]
+        let terminate = async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("Failed to install signal handler")
+                .recv()
+                .await;
+        };
+
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = terminate => {},
+        }
+    };
+
+    // Create shutdown handle for graceful shutdown
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
+    let shutdown_tx_clone = shutdown_tx.clone();
+
+    let server_handle = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                shutdown_rx.recv().await;
+            })
+            .await
+    });
 
     let block_production_handle = tokio::spawn(block_production_task(sequencer.clone()));
     let watcher_handle = tokio::spawn(async move {
@@ -160,17 +209,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    tokio::select! {
-        result = server_handle => {
-            result??;
-        }
-        _ = block_production_handle => {
-            eprintln!("Block production task stopped unexpectedly");
-        }
-        _ = watcher_handle => {
-            eprintln!("Watcher task stopped unexpectedly");
-        }
+    // Wait for shutdown signal
+    shutdown_signal.await;
+    println!("Shutdown signal received, starting graceful shutdown...");
+
+    // Notify server to shutdown
+    let _ = shutdown_tx_clone.send(()).await;
+
+    // Wait for server to shutdown
+    if let Err(e) = server_handle.await {
+        eprintln!("Server shutdown error: {:?}", e);
     }
+
+    // Abort background tasks
+    block_production_handle.abort();
+    watcher_handle.abort();
+
+    println!("Graceful shutdown completed");
 
     Ok(())
 }
