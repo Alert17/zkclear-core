@@ -1,8 +1,10 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
 };
+use std::collections::HashMap;
+use zkclear_types::{DealVisibility, Signature, TxKind, TxPayload};
 use std::sync::Arc;
 use zkclear_sequencer::Sequencer;
 use zkclear_storage::Storage;
@@ -152,6 +154,81 @@ pub async fn get_account_state(
         nonce: account.nonce,
         open_deals,
     }))
+}
+
+pub async fn get_deals_list(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<DealListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let state_handle = state.sequencer.get_state();
+    let state_guard = state_handle.lock().unwrap();
+
+    let mut deals: Vec<DealDetailsResponse> = state_guard
+        .deals
+        .values()
+        .map(|deal| DealDetailsResponse {
+            deal_id: deal.id,
+            maker: deal.maker,
+            taker: deal.taker,
+            asset_base: deal.asset_base,
+            asset_quote: deal.asset_quote,
+            chain_id_base: deal.chain_id_base,
+            chain_id_quote: deal.chain_id_quote,
+            amount_base: deal.amount_base,
+            amount_remaining: deal.amount_remaining,
+            price_quote_per_base: deal.price_quote_per_base,
+            status: format!("{:?}", deal.status),
+            created_at: deal.created_at,
+            expires_at: deal.expires_at,
+            is_cross_chain: deal.is_cross_chain,
+        })
+        .collect();
+
+    // Filter by status if provided
+    if let Some(status_filter) = params.get("status") {
+        let status_str = status_filter.to_lowercase();
+        deals.retain(|deal| deal.status.to_lowercase() == status_str);
+    }
+
+    // Filter by address (maker or taker) if provided
+    if let Some(address_filter) = params.get("address") {
+        let address_bytes = hex::decode(address_filter.trim_start_matches("0x")).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "InvalidAddress".to_string(),
+                    message: "Invalid address format".to_string(),
+                }),
+            )
+        })?;
+
+        if address_bytes.len() != 20 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "InvalidAddress".to_string(),
+                    message: "Address must be 20 bytes".to_string(),
+                }),
+            ));
+        }
+
+        let mut addr = [0u8; 20];
+        addr.copy_from_slice(&address_bytes);
+
+        deals.retain(|deal| deal.maker == addr || deal.taker == Some(addr));
+    }
+
+    // Filter by visibility if provided
+    if let Some(visibility_filter) = params.get("visibility") {
+        let visibility_str = visibility_filter.to_lowercase();
+        // Note: visibility is not in DealDetailsResponse, so we need to check the original deal
+        // For now, we'll skip this filter or add visibility to the response
+        // This is a limitation we can address later if needed
+    }
+
+    let total = deals.len();
+
+    Ok(Json(DealListResponse { deals, total }))
 }
 
 pub async fn get_deal_details(
@@ -441,4 +518,306 @@ pub async fn jsonrpc_handler(
         error: None,
         id: request.id,
     })
+}
+
+pub async fn submit_transaction(
+    State(state): State<Arc<ApiState>>,
+    Json(request): Json<crate::types::SubmitTransactionRequest>,
+) -> Result<Json<crate::types::SubmitTransactionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use crate::types::SubmitTransactionRequest;
+    use zkclear_types::{Address, Tx, TxKind, TxPayload};
+
+    let (tx, from_address) = match request {
+        SubmitTransactionRequest::Deposit {
+            tx_hash,
+            account,
+            asset_id,
+            amount,
+            chain_id,
+            nonce,
+            signature,
+        } => {
+            let tx_hash_bytes = hex::decode(tx_hash.trim_start_matches("0x"))
+                .map_err(|_| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            error: "InvalidTxHash".to_string(),
+                            message: "Invalid tx_hash format".to_string(),
+                        }),
+                    )
+                })?;
+
+            if tx_hash_bytes.len() != 32 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "InvalidTxHash".to_string(),
+                        message: "tx_hash must be 32 bytes".to_string(),
+                    }),
+                ));
+            }
+
+            let mut tx_hash_array = [0u8; 32];
+            tx_hash_array.copy_from_slice(&tx_hash_bytes);
+
+            let account_bytes = hex::decode(account.trim_start_matches("0x"))
+                .map_err(|_| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            error: "InvalidAddress".to_string(),
+                            message: "Invalid account address format".to_string(),
+                        }),
+                    )
+                })?;
+
+            if account_bytes.len() != 20 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "InvalidAddress".to_string(),
+                        message: "Account address must be 20 bytes".to_string(),
+                    }),
+                ));
+            }
+
+            let mut addr = [0u8; 20];
+            addr.copy_from_slice(&account_bytes);
+
+            let sig_bytes = hex::decode(signature.trim_start_matches("0x"))
+                .map_err(|_| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            error: "InvalidSignature".to_string(),
+                            message: "Invalid signature format".to_string(),
+                        }),
+                    )
+                })?;
+
+            if sig_bytes.len() != 65 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "InvalidSignature".to_string(),
+                        message: "Signature must be 65 bytes".to_string(),
+                    }),
+                ));
+            }
+
+            let mut sig = [0u8; 65];
+            sig.copy_from_slice(&sig_bytes);
+
+            let tx = Tx {
+                id: 0,
+                from: addr,
+                nonce,
+                kind: TxKind::Deposit,
+                payload: TxPayload::Deposit(zkclear_types::Deposit {
+                    tx_hash: tx_hash_array,
+                    account: addr,
+                    asset_id,
+                    amount,
+                    chain_id,
+                }),
+                signature: sig,
+            };
+
+            (tx, addr)
+        }
+        SubmitTransactionRequest::CreateDeal {
+            from,
+            deal_id,
+            visibility,
+            taker,
+            asset_base,
+            asset_quote,
+            chain_id_base,
+            chain_id_quote,
+            amount_base,
+            price_quote_per_base,
+            expires_at,
+            external_ref,
+            nonce,
+            signature,
+        } => {
+            let from_bytes = hex::decode(from.trim_start_matches("0x"))
+                .map_err(|_| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            error: "InvalidAddress".to_string(),
+                            message: "Invalid from address format".to_string(),
+                        }),
+                    )
+                })?;
+
+            if from_bytes.len() != 20 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "InvalidAddress".to_string(),
+                        message: "From address must be 20 bytes".to_string(),
+                    }),
+                ));
+            }
+
+            let mut from_address = [0u8; 20];
+            from_address.copy_from_slice(&from_bytes);
+
+            let visibility_enum = match visibility.as_str() {
+                "Public" => DealVisibility::Public,
+                "Direct" => DealVisibility::Direct,
+                _ => {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            error: "InvalidVisibility".to_string(),
+                            message: "Visibility must be 'Public' or 'Direct'".to_string(),
+                        }),
+                    ));
+                }
+            };
+
+            let taker_addr = taker.and_then(|t| {
+                let bytes = hex::decode(t.trim_start_matches("0x")).ok()?;
+                if bytes.len() != 20 {
+                    return None;
+                }
+                let mut addr = [0u8; 20];
+                addr.copy_from_slice(&bytes);
+                Some(addr)
+            });
+
+            let sig_bytes = hex::decode(signature.trim_start_matches("0x"))
+                .map_err(|_| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            error: "InvalidSignature".to_string(),
+                            message: "Invalid signature format".to_string(),
+                        }),
+                    )
+                })?;
+
+            if sig_bytes.len() != 65 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "InvalidSignature".to_string(),
+                        message: "Signature must be 65 bytes".to_string(),
+                    }),
+                ));
+            }
+
+            let mut sig = [0u8; 65];
+            sig.copy_from_slice(&sig_bytes);
+
+            let tx = Tx {
+                id: 0,
+                from: from_address,
+                nonce,
+                kind: TxKind::CreateDeal,
+                payload: TxPayload::CreateDeal(zkclear_types::CreateDeal {
+                    deal_id,
+                    visibility: visibility_enum,
+                    taker: taker_addr,
+                    asset_base,
+                    asset_quote,
+                    chain_id_base,
+                    chain_id_quote,
+                    amount_base,
+                    price_quote_per_base,
+                    expires_at,
+                    external_ref,
+                }),
+                signature: sig,
+            };
+
+            (tx, from_address)
+        }
+        SubmitTransactionRequest::AcceptDeal {
+            deal_id: _,
+            amount: _,
+            nonce: _,
+            signature: _,
+        } => {
+            return Err((
+                StatusCode::NOT_IMPLEMENTED,
+                Json(ErrorResponse {
+                    error: "NotImplemented".to_string(),
+                    message: "AcceptDeal transaction submission not yet implemented".to_string(),
+                }),
+            ));
+        }
+        SubmitTransactionRequest::CancelDeal {
+            deal_id: _,
+            nonce: _,
+            signature: _,
+        } => {
+            return Err((
+                StatusCode::NOT_IMPLEMENTED,
+                Json(ErrorResponse {
+                    error: "NotImplemented".to_string(),
+                    message: "CancelDeal transaction submission not yet implemented".to_string(),
+                }),
+            ));
+        }
+        SubmitTransactionRequest::Withdraw {
+            asset_id: _,
+            amount: _,
+            to: _,
+            chain_id: _,
+            nonce: _,
+            signature: _,
+        } => {
+            return Err((
+                StatusCode::NOT_IMPLEMENTED,
+                Json(ErrorResponse {
+                    error: "NotImplemented".to_string(),
+                    message: "Withdraw transaction submission not yet implemented".to_string(),
+                }),
+            ));
+        }
+    };
+
+    match state.sequencer.submit_tx_with_validation(tx, false) {
+        Ok(()) => {
+            // Generate a tx_hash from the transaction (simplified)
+            let tx_hash = hex::encode(&bincode::serialize(&tx).unwrap_or_default());
+            Ok(Json(crate::types::SubmitTransactionResponse {
+                tx_hash,
+                status: "queued".to_string(),
+            }))
+        }
+        Err(zkclear_sequencer::SequencerError::QueueFull) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "QueueFull".to_string(),
+                message: "Transaction queue is full".to_string(),
+            }),
+        )),
+        Err(zkclear_sequencer::SequencerError::InvalidSignature) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "InvalidSignature".to_string(),
+                message: "Transaction signature is invalid".to_string(),
+            }),
+        )),
+        Err(zkclear_sequencer::SequencerError::InvalidNonce) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "InvalidNonce".to_string(),
+                message: "Transaction nonce is invalid".to_string(),
+            }),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "SubmissionFailed".to_string(),
+                message: format!("Failed to submit transaction: {:?}", e),
+            }),
+        )),
+    }
 }

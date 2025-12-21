@@ -44,6 +44,12 @@ pub struct DealDetailsResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct DealListResponse {
+    pub deals: Vec<DealDetailsResponse>,
+    pub total: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BlockInfoResponse {
     pub block_id: BlockId,
     pub transaction_count: usize,
@@ -106,4 +112,63 @@ pub struct JsonRpcError {
 pub struct ErrorResponse {
     pub error: String,
     pub message: String,
+}
+
+// Transaction submission types
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum SubmitTransactionRequest {
+    Deposit {
+        tx_hash: String, // hex string
+        account: String, // hex string
+        asset_id: AssetId,
+        amount: u128,
+        chain_id: zkclear_types::ChainId,
+        nonce: u64,
+        signature: String, // hex string (65 bytes)
+    },
+    CreateDeal {
+        from: String, // hex string
+        deal_id: DealId,
+        visibility: String, // "Public" or "Direct"
+        taker: Option<String>, // hex string
+        asset_base: AssetId,
+        asset_quote: AssetId,
+        chain_id_base: zkclear_types::ChainId,
+        chain_id_quote: zkclear_types::ChainId,
+        amount_base: u128,
+        price_quote_per_base: u128,
+        expires_at: Option<u64>,
+        external_ref: Option<String>,
+        nonce: u64,
+        signature: String, // hex string (65 bytes)
+    },
+    AcceptDeal {
+        from: String, // hex string
+        deal_id: DealId,
+        amount: Option<u128>,
+        nonce: u64,
+        signature: String, // hex string (65 bytes)
+    },
+    CancelDeal {
+        from: String, // hex string
+        deal_id: DealId,
+        nonce: u64,
+        signature: String, // hex string (65 bytes)
+    },
+    Withdraw {
+        from: String, // hex string
+        asset_id: AssetId,
+        amount: u128,
+        to: String, // hex string
+        chain_id: zkclear_types::ChainId,
+        nonce: u64,
+        signature: String, // hex string (65 bytes)
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SubmitTransactionResponse {
+    pub tx_hash: String,
+    pub status: String,
 }

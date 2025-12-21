@@ -43,8 +43,10 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
             get(get_account_balance),
         )
         .route("/api/v1/account/:address", get(get_account_state))
+        .route("/api/v1/deals", get(get_deals_list))
         .route("/api/v1/deal/:deal_id", get(get_deal_details))
         .route("/api/v1/block/:block_id", get(get_block_info))
+        .route("/api/v1/transactions", post(submit_transaction))
         .route("/api/v1/queue/status", get(get_queue_status))
         .route("/api/v1/chains", get(get_supported_chains))
         .route("/jsonrpc", post(jsonrpc_handler))
