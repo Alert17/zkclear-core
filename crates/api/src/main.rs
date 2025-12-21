@@ -171,7 +171,138 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = create_router(api_state);
 
-    let watcher_config = WatcherConfig::default();
+    // Create watcher config
+    // If ETHEREUM_RPC_URL or BASE_RPC_URL are set, use them for testnet/mainnet
+    // If only RPC_URL is set, use it for local Hardhat network
+    // Otherwise, use default config (mainnet)
+    let watcher_config = if std::env::var("ETHEREUM_RPC_URL").is_ok() || std::env::var("BASE_RPC_URL").is_ok() {
+        // Testnet/Mainnet mode - use multiple chains from environment
+        let mut chains = Vec::new();
+        
+        // Ethereum chain (Sepolia testnet or mainnet)
+        if let Ok(rpc_url) = std::env::var("ETHEREUM_RPC_URL") {
+            let chain_id = std::env::var("ETHEREUM_CHAIN_ID")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(zkclear_types::chain_ids::ETHEREUM);
+            
+            chains.push(zkclear_watcher::ChainConfig {
+                chain_id,
+                rpc_url,
+                deposit_contract_address: std::env::var("ETHEREUM_DEPOSIT_CONTRACT")
+                    .unwrap_or_else(|_| "0x0000000000000000000000000000000000000000".to_string()),
+                required_confirmations: std::env::var("ETHEREUM_REQUIRED_CONFIRMATIONS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(12),
+                poll_interval_seconds: std::env::var("POLL_INTERVAL_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(3),
+                rpc_timeout_seconds: std::env::var("RPC_TIMEOUT_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(30),
+                max_retries: std::env::var("MAX_RETRIES")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(3),
+                retry_delay_seconds: std::env::var("RETRY_DELAY_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(1),
+                reorg_safety_blocks: std::env::var("REORG_SAFETY_BLOCKS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(10),
+            });
+        }
+        
+        // Base chain (Base Sepolia testnet or mainnet)
+        if let Ok(rpc_url) = std::env::var("BASE_RPC_URL") {
+            let chain_id = std::env::var("BASE_CHAIN_ID")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(zkclear_types::chain_ids::BASE);
+            
+            chains.push(zkclear_watcher::ChainConfig {
+                chain_id,
+                rpc_url,
+                deposit_contract_address: std::env::var("BASE_DEPOSIT_CONTRACT")
+                    .unwrap_or_else(|_| "0x0000000000000000000000000000000000000000".to_string()),
+                required_confirmations: std::env::var("BASE_REQUIRED_CONFIRMATIONS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(12),
+                poll_interval_seconds: std::env::var("POLL_INTERVAL_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(3),
+                rpc_timeout_seconds: std::env::var("RPC_TIMEOUT_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(30),
+                max_retries: std::env::var("MAX_RETRIES")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(3),
+                retry_delay_seconds: std::env::var("RETRY_DELAY_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(1),
+                reorg_safety_blocks: std::env::var("REORG_SAFETY_BLOCKS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(10),
+            });
+        }
+        
+        WatcherConfig { chains }
+    } else if std::env::var("RPC_URL").is_ok() {
+        // Local development mode - use single chain config from environment
+        let chain_id = std::env::var("CHAIN_ID")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(31337); // Hardhat default
+        
+        WatcherConfig {
+            chains: vec![zkclear_watcher::ChainConfig {
+                chain_id,
+                rpc_url: std::env::var("RPC_URL")
+                    .unwrap_or_else(|_| "http://localhost:8545".to_string()),
+                deposit_contract_address: std::env::var("DEPOSIT_CONTRACT_ADDRESS")
+                    .unwrap_or_else(|_| "0x0000000000000000000000000000000000000000".to_string()),
+                required_confirmations: std::env::var("REQUIRED_CONFIRMATIONS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0),
+                poll_interval_seconds: std::env::var("POLL_INTERVAL_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(3),
+                rpc_timeout_seconds: std::env::var("RPC_TIMEOUT_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(30),
+                max_retries: std::env::var("MAX_RETRIES")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(3),
+                retry_delay_seconds: std::env::var("RETRY_DELAY_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(1),
+                reorg_safety_blocks: std::env::var("REORG_SAFETY_BLOCKS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0),
+            }],
+        }
+    } else {
+        // Production mode - use default config (mainnet)
+        WatcherConfig::default()
+    };
+    
     let watcher = Watcher::new(sequencer.clone(), watcher_config);
 
     let listener = TcpListener::bind("0.0.0.0:8080").await?;

@@ -14,6 +14,25 @@ services:
       - BLOCK_INTERVAL_SEC=1
       - USE_PLACEHOLDER_PROVER=true
       - GROTH16_KEYS_DIR=
+      # Watcher Configuration - Testnet Mode (Ethereum Sepolia + Base Sepolia)
+      # Ethereum Sepolia Testnet
+      - ETHEREUM_CHAIN_ID=11155111
+      - ETHEREUM_RPC_URL=https://sepolia.infura.io/v3/
+      - ETHEREUM_DEPOSIT_CONTRACT=0x261ecf36739D5BD02D1895D54f066762881878da
+      - ETHEREUM_WITHDRAWAL_CONTRACT=0x8f7c28682710AC962c39516140Fae8567D555fA1
+      - ETHEREUM_REQUIRED_CONFIRMATIONS=3
+      # Base Sepolia Testnet
+      - BASE_CHAIN_ID=84532
+      - BASE_RPC_URL=https://sepolia.base.org
+      - BASE_DEPOSIT_CONTRACT=0x4aa15cAc206B4CAB551Dd70395cA4cf80db6EcAC
+      - BASE_WITHDRAWAL_CONTRACT=0xc5964A6C8409aD8e7d0276bcDc5ea4E2Dd02df2e
+      - BASE_REQUIRED_CONFIRMATIONS=3
+      # Common Watcher Settings
+      - POLL_INTERVAL_SECONDS=3
+      - RPC_TIMEOUT_SECONDS=30
+      - MAX_RETRIES=3
+      - RETRY_DELAY_SECONDS=1
+      - REORG_SAFETY_BLOCKS=10
     volumes:
       # Persistent storage for RocksDB (local directory)
       - ./data:/app/data

@@ -27,3 +27,6 @@ PROJECT_QUESTIONS.md
 # Docker
 .env
 .env.local
+docker-compose.local.yml
+
+data
