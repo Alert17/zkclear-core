@@ -115,18 +115,15 @@ pub async fn get_account_state(
     addr.copy_from_slice(&address_bytes);
 
     let state_handle = state.sequencer.get_state();
-    let state_guard = state_handle.lock().unwrap();
+    let mut state_guard = state_handle.lock().unwrap();
 
-    let account = state_guard.get_account_by_address(addr).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "AccountNotFound".to_string(),
-                message: "Account not found".to_string(),
-            }),
-        )
-    })?;
-
+    // Create account automatically if it doesn't exist (on first login/request)
+    // This matches the behavior of get_or_create_account_by_owner used in transactions
+    let account = state_guard.get_or_create_account_by_owner(addr);
+    
+    // Extract account data before releasing the mutable borrow
+    let account_id = account.id;
+    let nonce = account.nonce;
     let balances: Vec<BalanceInfo> = account
         .balances
         .iter()
@@ -136,7 +133,8 @@ pub async fn get_account_state(
             amount: b.amount,
         })
         .collect();
-
+    
+    // Now we can use immutable borrow for deals
     let open_deals: Vec<DealId> = state_guard
         .deals
         .values()
@@ -149,9 +147,9 @@ pub async fn get_account_state(
 
     Ok(Json(AccountStateResponse {
         address: addr,
-        account_id: account.id,
+        account_id,
         balances,
-        nonce: account.nonce,
+        nonce,
         open_deals,
     }))
 }
@@ -1001,6 +999,54 @@ pub async fn submit_transaction(
                 message: "Transaction nonce is invalid".to_string(),
             }),
         )),
+        Err(zkclear_sequencer::SequencerError::ExecutionFailed(stf_err)) => {
+            // Extract error message from StfError
+            let error_msg = format!("{:?}", stf_err);
+            let (error_code, message): (String, String) = if error_msg.contains("BalanceTooLow") {
+                (
+                    "BalanceTooLow".to_string(),
+                    "Insufficient balance to execute this transaction. Please ensure you have enough funds on the required chain.".to_string(),
+                )
+            } else if error_msg.contains("DealNotFound") {
+                (
+                    "DealNotFound".to_string(),
+                    "The deal you are trying to accept does not exist.".to_string(),
+                )
+            } else if error_msg.contains("DealAlreadyClosed") {
+                (
+                    "DealAlreadyClosed".to_string(),
+                    "This deal has already been settled or cancelled.".to_string(),
+                )
+            } else if error_msg.contains("Unauthorized") {
+                (
+                    "Unauthorized".to_string(),
+                    "You are not authorized to perform this action on this deal.".to_string(),
+                )
+            } else if error_msg.contains("InvalidNonce") {
+                (
+                    "InvalidNonce".to_string(),
+                    "Transaction nonce is invalid. Please try again.".to_string(),
+                )
+            } else if error_msg.contains("DealExpired") {
+                (
+                    "DealExpired".to_string(),
+                    "This deal has expired.".to_string(),
+                )
+            } else {
+                (
+                    "ExecutionFailed".to_string(),
+                    format!("Transaction execution failed: {}", error_msg),
+                )
+            };
+            
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: error_code,
+                    message: message,
+                }),
+            ))
+        },
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {

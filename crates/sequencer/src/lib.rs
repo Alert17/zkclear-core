@@ -119,9 +119,38 @@ impl Sequencer {
                 *self.current_block_id.lock().unwrap() = latest_block_id + 1;
             }
             Ok(None) => {
+                // If storage is empty (no snapshot), check if we actually have blocks
+                // Blocks are numbered starting from 1 (not 0), so we need to check from block 1
                 if latest_block_id > 0 {
-                    self.replay_blocks_from_storage(&*storage, 0, latest_block_id)?;
+                    // Try to find the first existing block (could be 1, 2, etc.)
+                    // Start from block 1 since blocks are numbered from 1
+                    let mut first_block_found = None;
+                    for block_id in 1..=latest_block_id {
+                        match storage.get_block(block_id) {
+                            Ok(Some(_)) => {
+                                first_block_found = Some(block_id);
+                                break;
+                            }
+                            Ok(None) => continue,
+                            Err(e) => {
+                                return Err(SequencerError::StorageError(format!(
+                                    "Failed to check block {}: {:?}",
+                                    block_id, e
+                                )));
+                            }
+                        }
+                    }
+                    
+                    if let Some(first_block) = first_block_found {
+                        // Found first block, replay from there
+                        self.replay_blocks_from_storage(&*storage, first_block, latest_block_id)?;
+                    } else {
+                        // No blocks found despite latest_block_id > 0
+                        // This indicates data inconsistency - treat as empty storage
+                        println!("Warning: latest_block_id is {} but no blocks found. Starting with fresh state.", latest_block_id);
+                    }
                 }
+                // If latest_block_id is 0 or no blocks found, start fresh
                 *self.current_block_id.lock().unwrap() = latest_block_id + 1;
                 *self.last_snapshot_block_id.lock().unwrap() = 0;
             }
@@ -143,6 +172,11 @@ impl Sequencer {
         from_block: BlockId,
         to_block: BlockId,
     ) -> Result<(), SequencerError> {
+        // Skip replay if range is invalid (from > to) or empty
+        if from_block > to_block {
+            return Ok(());
+        }
+
         let mut state = self.state.lock().unwrap();
 
         for block_id in from_block..=to_block {
